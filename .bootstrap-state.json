@@ -1,0 +1,12 @@
+{
+  "phases": {
+    "preflight": {
+      "status": "failed",
+      "timestamp": "2026-01-28T22:56:38.285035",
+      "data": {}
+    }
+  },
+  "env": null,
+  "outputs": {},
+  "last_run": "2026-01-28T22:56:38.285065"
+}

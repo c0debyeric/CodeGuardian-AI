@@ -1,0 +1,97 @@
+# Kubecost - Cost Management and Optimization
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kubecost
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  
+  source:
+    repoURL: https://kubecost.github.io/cost-analyzer
+    targetRevision: 2.5.1
+    chart: cost-analyzer
+    helm:
+      valuesObject:
+        # Use existing Prometheus (from kube-prometheus-stack)
+        global:
+          prometheus:
+            enabled: false
+            fqdn: http://prometheus-operated.monitoring.svc.cluster.local:9090
+          
+          grafana:
+            enabled: false
+            proxy: false
+        
+        # Kubecost specific settings
+        kubecostMetrics:
+          emitPodAnnotations: true
+          emitNamespaceAnnotations: true
+          emitKsmV1Metrics: true
+          emitKsmV1MetricsOnly: false
+        
+        # Cost model configuration
+        kubecostModel:
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+          
+          # Enable cloud integration
+          cloudCost:
+            enabled: true
+            provider: aws
+        
+        # Frontend
+        kubecostFrontend:
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 50m
+              memory: 64Mi
+        
+        # Retention settings
+        kubecostDeployment:
+          queryServiceMemoryLimit: "4Gi"
+        
+        # Network costs (optional but recommended)
+        networkCosts:
+          enabled: true
+          podSecurityPolicy:
+            enabled: false
+        
+        # Storage
+        persistentVolume:
+          storageClass: gp3
+        
+        # Savings recommendations
+        savings:
+          enabled: true
+        
+        # Reporting
+        reporting:
+          logCollection: true
+          productAnalytics: false
+        
+        # Service account (for AWS cost integration via IRSA if needed)
+        serviceAccount:
+          create: true
+          name: kubecost
+  
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kubecost
+  
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

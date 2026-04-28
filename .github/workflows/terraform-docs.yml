@@ -1,0 +1,106 @@
+name: Auto-Generate Terraform Documentation
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '**.tf'
+      - '.terraform-docs.yml'
+  pull_request:
+    paths:
+      - '**.tf'
+      - '.terraform-docs.yml'
+
+concurrency:
+  group: terraform-docs-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  docs:
+    name: Generate Documentation
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        module:
+          - path: '.'
+            name: 'root'
+          - path: 'modules/account-creation'
+            name: 'account-creation'
+          - path: 'modules/account-governance'
+            name: 'account-governance'
+          - path: 'modules/account-setup'
+            name: 'account-setup'
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref || github.ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+      
+      - name: Render terraform docs for ${{ matrix.module.name }} module
+        uses: terraform-docs/gh-actions@v1.3.0
+        with:
+          working-dir: ${{ matrix.module.path }}
+          config-file: .terraform-docs.yml
+          git-push: "false"
+      
+      - name: Upload documentation artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-${{ matrix.module.name }}
+          path: ${{ matrix.module.path }}/README.md
+          retention-days: 1
+
+  commit-docs:
+    name: Commit Documentation Changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: docs
+    if: github.event_name == 'push'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+      
+      - name: Download all documentation artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: docs-*
+      
+      - name: Move documentation to correct locations
+        run: |
+          mv docs-root/README.md ./README.md || true
+          mv docs-account-creation/README.md ./modules/account-creation/README.md || true
+          mv docs-account-governance/README.md ./modules/account-governance/README.md || true
+          mv docs-account-setup/README.md ./modules/account-setup/README.md || true
+      
+      - name: Check for changes
+        id: check
+        run: |
+          if git diff --quiet; then
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "No documentation changes detected"
+          else
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "Documentation changes detected"
+          fi
+      
+      - name: Commit and push changes
+        if: steps.check.outputs.has_changes == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add README.md modules/*/README.md
+          git commit -m "docs: auto-generate terraform documentation"
+          git push

@@ -1,0 +1,119 @@
+# Velero - Backup and Disaster Recovery
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: velero
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  
+  source:
+    repoURL: https://vmware-tanzu.github.io/helm-charts
+    targetRevision: 8.1.0
+    chart: velero
+    helm:
+      valuesObject:
+        # Override kubectl image - bitnami/kubectl:1.34 doesn't exist yet
+        kubectl:
+          image:
+            repository: docker.io/bitnami/kubectl
+            tag: "1.31"
+        
+        # Service account - Pod Identity is configured via Terraform
+        # No annotations needed; EKS Pod Identity Agent handles AWS credentials
+        serviceAccount:
+          server:
+            create: true
+            name: velero
+
+        # AWS Configuration
+        configuration:
+          backupStorageLocation:
+            - name: default
+              provider: aws
+              bucket: terraform-state-810749429738-velero-backups
+              config:
+                region: us-east-1
+          
+          volumeSnapshotLocation:
+            - name: default
+              provider: aws
+              config:
+                region: us-east-1
+          
+          # Default backup TTL
+          defaultBackupTTL: 720h  # 30 days
+          
+          # Garbage collection frequency
+          garbageCollectionFrequency: 1h
+        
+        # Install AWS plugin
+        initContainers:
+          - name: velero-plugin-for-aws
+            image: velero/velero-plugin-for-aws:v1.10.0
+            volumeMounts:
+              - mountPath: /target
+                name: plugins
+        
+        # Resources
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        
+        # Scheduled backups
+        schedules:
+          daily-backup:
+            disabled: false
+            schedule: "0 2 * * *"  # 2 AM daily
+            template:
+              ttl: 168h  # 7 days
+              includedNamespaces:
+                - myhealth
+                - default
+              excludedResources:
+                - events
+                - events.events.k8s.io
+              storageLocation: default
+              volumeSnapshotLocations:
+                - default
+          
+          weekly-full-backup:
+            disabled: false
+            schedule: "0 3 * * 0"  # 3 AM Sunday
+            template:
+              ttl: 720h  # 30 days
+              includedNamespaces:
+                - "*"
+              excludedNamespaces:
+                - kube-system
+                - velero
+              excludedResources:
+                - events
+                - events.events.k8s.io
+              storageLocation: default
+              volumeSnapshotLocations:
+                - default
+        
+        # Node agent for file-system backups
+        deployNodeAgent: true
+        nodeAgent:
+          tolerations:
+            - effect: NoSchedule
+              operator: Exists
+  
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: velero
+  
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

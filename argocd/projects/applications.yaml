@@ -1,0 +1,30 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: applications
+  namespace: argocd
+spec:
+  description: CodeGuardian application workloads
+  
+  sourceRepos:
+    - 'https://github.com/*'
+    - '*'
+  
+  destinations:
+    - namespace: codeguardian
+      server: https://kubernetes.default.svc
+    - namespace: codeguardian-staging
+      server: https://kubernetes.default.svc
+  
+  clusterResourceWhitelist:
+    - group: ''
+      kind: Namespace
+    - group: networking.k8s.io
+      kind: '*'
+  
+  namespaceResourceWhitelist:
+    - group: '*'
+      kind: '*'
+  
+  orphanedResources:
+    warn: true

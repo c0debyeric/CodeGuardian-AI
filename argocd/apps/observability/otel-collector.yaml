@@ -1,0 +1,118 @@
+# OpenTelemetry Collector - Unified telemetry collection
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: opentelemetry-collector
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  
+  source:
+    repoURL: https://open-telemetry.github.io/opentelemetry-helm-charts
+    targetRevision: 0.113.0
+    chart: opentelemetry-collector
+    helm:
+      valuesObject:
+        mode: deployment
+        
+        image:
+          repository: otel/opentelemetry-collector-contrib
+        
+        # Collector configuration
+        config:
+          receivers:
+            otlp:
+              protocols:
+                grpc:
+                  endpoint: 0.0.0.0:4317
+                http:
+                  endpoint: 0.0.0.0:4318
+            
+            # Prometheus receiver for scraping metrics
+            prometheus:
+              config:
+                scrape_configs:
+                  - job_name: 'otel-collector'
+                    scrape_interval: 30s
+                    static_configs:
+                      - targets: ['localhost:8888']
+          
+          processors:
+            batch:
+              timeout: 10s
+              send_batch_size: 1024
+            
+            memory_limiter:
+              check_interval: 1s
+              limit_mib: 1000
+              spike_limit_mib: 200
+            
+            # Add resource attributes
+            resource:
+              attributes:
+                - key: cluster
+                  value: codeguardian-dev
+                  action: upsert
+          
+          exporters:
+            # Export traces to Tempo
+            otlp/tempo:
+              endpoint: tempo.monitoring.svc.cluster.local:4317
+              tls:
+                insecure: true
+            
+            # Export metrics to Prometheus
+            prometheus:
+              endpoint: 0.0.0.0:8889
+              namespace: otel
+            
+            # Export logs to Loki
+            loki:
+              endpoint: http://loki-gateway.monitoring.svc.cluster.local/loki/api/v1/push
+            
+            # Debug exporter for troubleshooting
+            debug:
+              verbosity: basic
+          
+          service:
+            pipelines:
+              traces:
+                receivers: [otlp]
+                processors: [memory_limiter, batch]
+                exporters: [otlp/tempo]
+              
+              metrics:
+                receivers: [otlp, prometheus]
+                processors: [memory_limiter, batch]
+                exporters: [prometheus]
+              
+              logs:
+                receivers: [otlp]
+                processors: [memory_limiter, batch]
+                exporters: [loki]
+        
+        # Service configuration
+        service:
+          type: ClusterIP
+        
+        # Resources
+        resources:
+          limits:
+            cpu: 500m
+            memory: 1Gi
+          requests:
+            cpu: 100m
+            memory: 256Mi
+  
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

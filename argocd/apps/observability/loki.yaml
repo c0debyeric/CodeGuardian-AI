@@ -1,0 +1,87 @@
+# Grafana Loki - Log Aggregation
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: loki
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  
+  source:
+    repoURL: https://grafana.github.io/helm-charts
+    targetRevision: 6.24.0
+    chart: loki
+    helm:
+      valuesObject:
+        # Deployment mode: single binary for simplicity (use distributed for prod scale)
+        deploymentMode: SingleBinary
+        
+        loki:
+          auth_enabled: false
+          
+          # S3 storage configuration
+          storage:
+            type: s3
+            bucketNames:
+              chunks: terraform-state-810749429738-observability
+              ruler: terraform-state-810749429738-observability
+            s3:
+              region: us-east-1
+              s3ForcePathStyle: false
+          
+          # Schema configuration
+          schemaConfig:
+            configs:
+              - from: "2024-01-01"
+                store: tsdb
+                object_store: s3
+                schema: v13
+                index:
+                  prefix: loki_index_
+                  period: 24h
+          
+          # Limits configuration
+          limits_config:
+            retention_period: 744h  # 31 days
+            ingestion_rate_mb: 10
+            ingestion_burst_size_mb: 20
+            max_query_parallelism: 32
+        
+        # Service account - Pod Identity is configured via Terraform
+        # No annotations needed; EKS Pod Identity Agent handles credentials
+        serviceAccount:
+          create: true
+          name: loki
+        
+        # Single binary mode
+        singleBinary:
+          replicas: 1
+          persistence:
+            enabled: true
+            size: 10Gi
+        
+        # Disable other components for single binary mode
+        backend:
+          replicas: 0
+        read:
+          replicas: 0
+        write:
+          replicas: 0
+        
+        # Gateway
+        gateway:
+          enabled: true
+          replicas: 1
+  
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

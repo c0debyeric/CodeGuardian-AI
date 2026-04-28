@@ -1,0 +1,48 @@
+Copy the Terraform module used in the previous project (bootstrap the IAC part)
+for the app/ we can copy the code anayalzer project in the GEN AI / MLops folder. 
+create .env.example file with all the variables needed for the app
+have a python terraform deployment script that stores the endpoints/env specific variables in a .env file
+┌─────────────────────────────────────────────────────────────────┐
+│  Phase 1: PREFLIGHT                                             │
+│  ├── Check AWS credentials (sts get-caller-identity)           │
+│  ├── Check required tools (terraform, kubectl, aws, docker)    │
+│  ├── Check AWS region matches config                           │
+│  └── Verify terraform files exist                              │
+├─────────────────────────────────────────────────────────────────┤
+│  Phase 2: TERRAFORM                                             │
+│  ├── terraform init                                            │
+│  ├── terraform plan (show what will be created)                │
+│  ├── terraform apply -auto-approve                             │
+│  ├── Capture outputs (EKS endpoint, ECR URIs, RDS, etc.)       │
+│  └── Write outputs to .env file                                │
+├─────────────────────────────────────────────────────────────────┤
+│  Phase 3: KUBECONFIG                                            │
+│  ├── aws eks update-kubeconfig                                 │
+│  ├── Verify kubectl access (kubectl get nodes)                 │
+│  └── Wait for nodes to be Ready                                │
+├─────────────────────────────────────────────────────────────────┤
+│  Phase 4: IMAGES                                                │
+│  ├── ECR login                                                 │
+│  ├── Build backend Docker image                                │
+│  ├── Build frontend Docker image                               │
+│  ├── Tag with git SHA + latest                                 │
+│  └── Push to ECR                                               │
+├─────────────────────────────────────────────────────────────────┤
+│  Phase 5: HELM CHART                                            │
+│  ├── Generate/update values.yaml with terraform outputs        │
+│  │   (ECR URIs, RDS endpoint, domain, etc.)                    │
+│  └── Validate Helm chart                                       │
+├─────────────────────────────────────────────────────────────────┤
+│  Phase 6: ARGOCD                                                │
+│  ├── Wait for ArgoCD to be ready (installed via Terraform)     │
+│  ├── Get ArgoCD admin password                                 │
+│  ├── Update root-app.yaml with GitHub repo URL                 │
+│  ├── Apply root-app.yaml (App of Apps)                         │
+│  └── Wait for apps to sync                                     │
+├─────────────────────────────────────────────────────────────────┤
+│  Phase 7: VALIDATE                                              │
+│  ├── Check all pods are running                                │
+│  ├── Test health endpoints                                     │
+│  ├── Verify observability stack (Prometheus, Grafana)          │
+│  └── Print access URLs and credentials                         │
+└─────────────────────────────────────────────────────────────────┘

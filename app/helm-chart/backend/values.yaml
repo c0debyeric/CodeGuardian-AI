@@ -1,0 +1,74 @@
+replicaCount: 2
+
+image:
+  repository: "810749429738.dkr.ecr.us-east-1.amazonaws.com/codeguardian/backend"
+  tag: "latest"
+  pullPolicy: Always
+
+serviceAccount:
+  create: true
+  name: codeguardian-backend
+
+service:
+  type: ClusterIP
+  port: 8000
+
+env:
+  APP_ENV: "production"
+  APP_DEBUG: "false"
+  LOG_LEVEL: "INFO"
+  AWS_REGION: "us-east-1"
+  BEDROCK_MODEL_ID: "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+  OTEL_SERVICE_NAME: "codeguardian-backend"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://opentelemetry-collector.monitoring:4317"
+  OTEL_EXPORTER_OTLP_PROTOCOL: "grpc"
+
+# DB credentials pulled via ExternalSecret
+externalSecret:
+  enabled: true
+  secretStore:
+    name: aws-secrets-manager
+    kind: SecretStore
+  remoteSecretName: "codeguardian/db-credentials"
+  targetSecretName: "db-credentials"
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+networkPolicy:
+  enabled: true
+
+serviceMonitor:
+  enabled: true
+  interval: 30s
+
+probes:
+  liveness:
+    path: /health
+    initialDelaySeconds: 15
+    periodSeconds: 20
+    timeoutSeconds: 5
+  readiness:
+    path: /health
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 3
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

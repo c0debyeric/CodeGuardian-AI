@@ -1,0 +1,47 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: platform
+  namespace: argocd
+spec:
+  description: Platform infrastructure components (observability, security, operations)
+  
+  # Source repositories
+  sourceRepos:
+    - 'https://github.com/prometheus-community/helm-charts'
+    - 'https://grafana.github.io/helm-charts'
+    - 'https://kyverno.github.io/kyverno'
+    - 'https://falcosecurity.github.io/charts'
+    - 'https://vmware-tanzu.github.io/helm-charts'
+    - 'https://kubecost.github.io/cost-analyzer'
+    - 'https://open-telemetry.github.io/opentelemetry-helm-charts'
+    - '*'  # Allow any repo for flexibility during development
+  
+  # Allowed destinations
+  destinations:
+    - namespace: monitoring
+      server: https://kubernetes.default.svc
+    - namespace: security
+      server: https://kubernetes.default.svc
+    - namespace: velero
+      server: https://kubernetes.default.svc
+    - namespace: kubecost
+      server: https://kubernetes.default.svc
+    - namespace: kyverno
+      server: https://kubernetes.default.svc
+    - namespace: falco
+      server: https://kubernetes.default.svc
+    - namespace: kube-system
+      server: https://kubernetes.default.svc
+  
+  # Cluster resource whitelist
+  clusterResourceWhitelist:
+    - group: '*'
+      kind: '*'
+  
+  # Namespace resource blacklist (optional security)
+  namespaceResourceBlacklist: []
+  
+  # Orphaned resources monitoring
+  orphanedResources:
+    warn: true

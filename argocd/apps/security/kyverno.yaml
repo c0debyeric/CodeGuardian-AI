@@ -1,0 +1,83 @@
+# Kyverno - Policy Engine
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kyverno
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  
+  source:
+    repoURL: https://kyverno.github.io/kyverno
+    targetRevision: 3.3.4
+    chart: kyverno
+    helm:
+      valuesObject:
+        # High availability
+        replicaCount: 2
+        
+        # Admission controller configuration
+        admissionController:
+          replicas: 2
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+        
+        # Background controller
+        backgroundController:
+          replicas: 1
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 50m
+              memory: 64Mi
+        
+        # Cleanup controller
+        cleanupController:
+          replicas: 1
+        
+        # Reports controller
+        reportsController:
+          replicas: 1
+        
+        # Override kubectl image for cleanup jobs (bitnami removed old tags)
+        cleanupJobs:
+          admissionReports:
+            image:
+              registry: docker.io
+              repository: bitnami/kubectl
+              tag: "1.31"
+          clusterAdmissionReports:
+            image:
+              registry: docker.io
+              repository: bitnami/kubectl
+              tag: "1.31"
+        
+        # Webhook configuration
+        webhooksCleanup:
+          enabled: true
+        
+        # Enable policy reports
+        features:
+          policyReports:
+            enabled: true
+  
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kyverno
+  
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

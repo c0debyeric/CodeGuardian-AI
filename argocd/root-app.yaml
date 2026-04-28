@@ -1,0 +1,33 @@
+# ArgoCD App of Apps - Root Application
+# This is the "App of Apps" pattern entry point
+# Apply this after ArgoCD is installed via Terraform
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  
+  source:
+    repoURL: https://github.com/asian-code/CodeGuardian-AI
+    targetRevision: main
+    path: argocd
+    directory:
+      recurse: true
+      include: '{projects/*.yaml,apps/**/*.yaml}'
+  
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - PruneLast=true

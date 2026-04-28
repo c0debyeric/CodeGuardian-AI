@@ -1,0 +1,62 @@
+# Grafana Tempo - Distributed Tracing
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: tempo
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  
+  source:
+    repoURL: https://grafana.github.io/helm-charts
+    targetRevision: 1.18.3
+    chart: tempo
+    helm:
+      valuesObject:
+        # Single binary mode for simplicity
+        tempo:
+          storage:
+            trace:
+              backend: s3
+              s3:
+                bucket: terraform-state-810749429738-observability
+                endpoint: s3.us-east-1.amazonaws.com  # UPDATE: Match your region
+                region: us-east-1  # UPDATE: Match your region
+                insecure: false
+          
+          # Retention
+          retention: 720h  # 30 days
+          
+          # Receivers configuration
+          receivers:
+            otlp:
+              protocols:
+                grpc:
+                  endpoint: 0.0.0.0:4317
+                http:
+                  endpoint: 0.0.0.0:4318
+        
+        # Service account - Pod Identity is configured via Terraform
+        # No annotations needed; EKS Pod Identity Agent handles credentials
+        serviceAccount:
+          create: true
+          name: tempo
+        
+        # Persistence
+        persistence:
+          enabled: true
+          storageClassName: gp3
+          size: 10Gi
+  
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
