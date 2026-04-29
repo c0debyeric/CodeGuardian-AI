@@ -46,9 +46,9 @@ output "ecr_backend_url" {
   value       = module.ecr.backend_url
 }
 
-output "ecr_frontend_url" {
-  description = "ECR repository URL for frontend"
-  value       = module.ecr.frontend_url
+output "ecr_admin_ui_url" {
+  description = "ECR repository URL for admin-ui (Next.js console)"
+  value       = module.ecr.admin_ui_url
 }
 
 # ACM

@@ -7,30 +7,57 @@ image:
 
 serviceAccount:
   create: true
-  name: codeguardian-backend
+  # IAM Role for Bedrock access is bound via IRSA annotations in the SA template
+  name: llm-gateway-backend
 
 service:
   type: ClusterIP
   port: 8000
 
 env:
+  # --- Core ---
+  APP_NAME: "LLM Gateway"
   APP_ENV: "production"
   APP_DEBUG: "false"
   LOG_LEVEL: "INFO"
+  # --- Providers ---
+  BEDROCK_ENABLED: "true"
+  OPENAI_ENABLED: "false"
   AWS_REGION: "us-east-1"
-  BEDROCK_MODEL_ID: "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
-  OTEL_SERVICE_NAME: "codeguardian-backend"
+  DEFAULT_MODEL: "auto"
+  FALLBACK_ENABLED: "true"
+  # --- Auth + limits ---
+  AUTH_ENABLED: "true"
+  # --- Guardrails + cache ---
+  GUARDRAILS_ENABLED: "true"
+  GUARDRAILS_REDACT_PII: "true"
+  SEMANTIC_CACHE_ENABLED: "true"
+  SEMANTIC_CACHE_MODE: "exact"
+  SEMANTIC_CACHE_THRESHOLD: "0.85"
+  SEMANTIC_CACHE_TTL_SECONDS: "3600"
+  # --- Backing services (in-cluster Redis from Bitnami chart) ---
+  REDIS_URL: "redis://redis-master.llm-gateway.svc.cluster.local:6379/0"
+  # --- Observability ---
+  OTEL_SERVICE_NAME: "llm-gateway"
   OTEL_EXPORTER_OTLP_ENDPOINT: "http://opentelemetry-collector.monitoring:4317"
   OTEL_EXPORTER_OTLP_PROTOCOL: "grpc"
 
-# DB credentials pulled via ExternalSecret
+# Postgres credentials for usage-tracking DB. Pulled via ExternalSecret
+# from AWS Secrets Manager. The deployment composes DATABASE_URL at startup.
 externalSecret:
   enabled: true
   secretStore:
     name: aws-secrets-manager
     kind: SecretStore
-  remoteSecretName: "codeguardian/db-credentials"
+  remoteSecretName: "llm-gateway/db-credentials"
   targetSecretName: "db-credentials"
+
+# Admin API key (for tenant management endpoints). Pulled from a separate
+# Secrets Manager entry so it can be rotated independently of DB creds.
+adminSecret:
+  enabled: true
+  remoteSecretName: "llm-gateway/admin-api-key"
+  targetSecretName: "llm-gateway-admin"
 
 resources:
   requests:

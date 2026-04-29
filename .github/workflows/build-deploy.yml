@@ -9,7 +9,7 @@ on:
 
 env:
   AWS_REGION: us-east-1
-  EKS_CLUSTER_NAME: codeguardian-dev
+  EKS_CLUSTER_NAME: llm-gateway-dev
 
 permissions:
   id-token: write
@@ -25,9 +25,9 @@ jobs:
           - component: backend
             context: ./app/backend
             ecr_repo: codeguardian/backend
-          - component: frontend
-            context: ./app/frontend
-            ecr_repo: codeguardian/frontend
+          - component: admin-ui
+            context: ./app/admin-ui
+            ecr_repo: codeguardian/admin-ui
     outputs:
       image-tag: ${{ steps.image-tag.outputs.tag }}
     steps:

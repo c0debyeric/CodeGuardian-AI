@@ -1,7 +1,7 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: codeguardian-backend
+  name: llm-gateway-backend
   namespace: argocd
   finalizers:
     - resources-finalizer.argocd.argoproj.io
@@ -19,7 +19,7 @@ spec:
 
   destination:
     server: https://kubernetes.default.svc
-    namespace: codeguardian
+    namespace: llm-gateway
 
   syncPolicy:
     automated:

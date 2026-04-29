@@ -47,7 +47,7 @@ module "eks" {
 }
 
 # ============================================================================
-# RDS PostgreSQL (for analysis history)
+# RDS PostgreSQL (LLM Gateway usage history: per-request tokens, cost, latency)
 # ============================================================================
 module "rds" {
   source = "./modules/rds"
@@ -74,7 +74,7 @@ module "ecr" {
 
   repository_prefix              = var.ecr_repository_prefix
   backend_repo_name              = var.ecr_backend_repo_name
-  frontend_repo_name             = var.ecr_frontend_repo_name
+  admin_ui_repo_name             = var.ecr_admin_ui_repo_name
   image_tag_mutability           = var.environment == "prod" ? "IMMUTABLE" : "MUTABLE"
   scan_on_push                   = true
   tagged_image_retention_count   = var.environment == "prod" ? 30 : 10

@@ -53,7 +53,7 @@ spec:
             resource:
               attributes:
                 - key: cluster
-                  value: codeguardian-dev
+                  value: llm-gateway-dev
                   action: upsert
           
           exporters:

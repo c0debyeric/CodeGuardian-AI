@@ -1,7 +1,7 @@
 [project]
-name = "codeguardian-backend"
+name = "llm-gateway"
 version = "0.1.0"
-description = "AI-powered security code reviewer - Backend API"
+description = "OpenAI-compatible LLM gateway with multi-provider routing, fallback, cost tracking, and observability"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
@@ -16,7 +16,11 @@ dependencies = [
     "opentelemetry-exporter-otlp>=1.29.0",
     "opentelemetry-instrumentation-fastapi>=0.50b0",
     "opentelemetry-instrumentation-botocore>=0.50b0",
+    "opentelemetry-instrumentation-httpx>=0.50b0",
     "prometheus-fastapi-instrumentator>=7.0.0",
+    "sqlalchemy[asyncio]>=2.0.36",
+    "aiosqlite>=0.20.0",
+    "asyncpg>=0.30.0",
 ]
 
 [project.optional-dependencies]

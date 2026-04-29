@@ -1,12 +1,15 @@
 """FastAPI application entry point."""
 
 import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 
+from src.api.admin import router as admin_router
 from src.api.routes import router
 from src.core.config import get_settings
 
@@ -35,12 +38,32 @@ def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
     settings = get_settings()
 
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        from src.usage.db import init_db
+
+        logger.info(
+            "Starting LLM Gateway",
+            version=settings.app_version,
+            environment=settings.app_env,
+        )
+        try:
+            await init_db()
+        except Exception as e:
+            logger.warning("db.init_failed", error=str(e))
+        yield
+        logger.info("Shutting down LLM Gateway")
+
     app = FastAPI(
         title=settings.app_name,
-        description="AI-powered security code reviewer that catches vulnerabilities before deployment",
+        description=(
+            "OpenAI-compatible LLM gateway with multi-provider routing, "
+            "fallback, cost tracking, and observability."
+        ),
         version=settings.app_version,
         docs_url="/docs" if settings.app_debug else None,
         redoc_url="/redoc" if settings.app_debug else None,
+        lifespan=lifespan,
     )
 
     # Configure CORS
@@ -54,6 +77,7 @@ def create_app() -> FastAPI:
 
     # Include routes
     app.include_router(router)
+    app.include_router(admin_router)
 
     # Prometheus metrics endpoint
     Instrumentator().instrument(app).expose(app, endpoint="/metrics")
@@ -70,7 +94,7 @@ def create_app() -> FastAPI:
             from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
             resource = Resource.create({
-                "service.name": os.environ.get("OTEL_SERVICE_NAME", "codeguardian-backend"),
+                "service.name": os.environ.get("OTEL_SERVICE_NAME", "llm-gateway"),
             })
             provider = TracerProvider(resource=resource)
             exporter = OTLPSpanExporter()
@@ -83,18 +107,6 @@ def create_app() -> FastAPI:
             logger.info("OpenTelemetry instrumentation enabled")
         except Exception as e:
             logger.warning("Failed to initialize OpenTelemetry", error=str(e))
-
-    @app.on_event("startup")
-    async def startup_event():
-        logger.info(
-            "Starting CodeGuardian AI",
-            version=settings.app_version,
-            environment=settings.app_env,
-        )
-
-    @app.on_event("shutdown")
-    async def shutdown_event():
-        logger.info("Shutting down CodeGuardian AI")
 
     return app
 

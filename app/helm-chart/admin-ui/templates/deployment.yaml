@@ -1,0 +1,98 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llm-gateway-admin-ui
+  labels:
+    app.kubernetes.io/name: llm-gateway-admin-ui
+    app.kubernetes.io/component: admin-ui
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: llm-gateway-admin-ui
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: llm-gateway-admin-ui
+        app.kubernetes.io/component: admin-ui
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: admin-ui
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 3000
+          env:
+            - name: GATEWAY_URL
+              value: {{ .Values.gatewayUrl | quote }}
+            - name: NEXT_PUBLIC_GRAFANA_URL
+              value: {{ .Values.grafana.url | quote }}
+            - name: NEXT_PUBLIC_GRAFANA_DASHBOARD_UID
+              value: {{ .Values.grafana.dashboardUid | quote }}
+            {{- if .Values.adminSecret.enabled }}
+            - name: ADMIN_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.adminSecret.targetSecretName }}
+                  key: ADMIN_API_KEY
+            {{- end }}
+          livenessProbe:
+            httpGet: { path: {{ .Values.probes.liveness.path }}, port: http }
+            initialDelaySeconds: {{ .Values.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+          readinessProbe:
+            httpGet: { path: {{ .Values.probes.readiness.path }}, port: http }
+            initialDelaySeconds: {{ .Values.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          volumeMounts:
+            - name: cache
+              mountPath: /app/.next/cache
+      volumes:
+        - name: cache
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: llm-gateway-admin-ui
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    app.kubernetes.io/name: llm-gateway-admin-ui
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: http
+      name: http
+{{- if .Values.adminSecret.enabled }}
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: {{ .Values.adminSecret.targetSecretName }}-ui
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: {{ .Values.adminSecret.secretStore.name }}
+    kind: {{ .Values.adminSecret.secretStore.kind }}
+  target:
+    # Same secret name as the backend; both deployments mount it.
+    name: {{ .Values.adminSecret.targetSecretName }}
+    creationPolicy: Owner
+  data:
+    - secretKey: ADMIN_API_KEY
+      remoteRef:
+        key: {{ .Values.adminSecret.remoteSecretName }}
+        property: api_key
+{{- end }}

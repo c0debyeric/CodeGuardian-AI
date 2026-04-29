@@ -1,150 +1,123 @@
-"""Pydantic schemas for API request/response models."""
+"""OpenAI-compatible request/response schemas.
 
-from enum import Enum
+By matching OpenAI's wire format, any client library (openai-python, langchain,
+llamaindex, curl examples from docs) works against this gateway with only a
+base_url change. This is the primary onboarding lever for app teams.
+"""
+
+from __future__ import annotations
+
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
 
-class Language(str, Enum):
-    """Supported programming languages for code analysis."""
-
-    PYTHON = "python"
-    JAVASCRIPT = "javascript"
-    TERRAFORM = "terraform"
-    AUTO = "auto"
+# ---------- Chat Completions (OpenAI-compatible) ----------
 
 
-class Severity(str, Enum):
-    """Severity levels for security findings."""
-
-    CRITICAL = "CRITICAL"
-    HIGH = "HIGH"
-    MEDIUM = "MEDIUM"
-    LOW = "LOW"
-    INFO = "INFO"
+class ChatMessage(BaseModel):
+    role: Literal["system", "user", "assistant", "tool"]
+    content: str | list[dict[str, Any]]
+    name: str | None = None
+    tool_call_id: str | None = None
 
 
-class AnalyzeRequest(BaseModel):
-    """Request schema for code analysis endpoint."""
+class ChatCompletionRequest(BaseModel):
+    """OpenAI /v1/chat/completions request body.
 
-    code: str = Field(..., min_length=1, max_length=100000, description="Code to analyze")
-    language: Language = Field(
-        default=Language.AUTO, description="Programming language (auto-detected if not specified)"
-    )
-    context: str | None = Field(
-        default=None, max_length=1000, description="Additional context for analysis"
-    )
+    `model` may be a concrete provider model id (e.g. "gpt-4o-mini",
+    "anthropic.claude-sonnet-4-5") or a routing alias like "auto",
+    "cheapest", "fastest".
+    """
 
-    model_config = {
-        "json_schema_extra": {
-            "examples": [
-                {
-                    "code": 'password = "admin123"\nquery = f"SELECT * FROM users WHERE id = {user_id}"',
-                    "language": "python",
-                    "context": "This is a Flask web application",
-                }
-            ]
-        }
-    }
+    model: str
+    messages: list[ChatMessage]
+    temperature: float | None = Field(default=None, ge=0.0, le=2.0)
+    max_tokens: int | None = Field(default=None, gt=0)
+    top_p: float | None = Field(default=None, ge=0.0, le=1.0)
+    stream: bool = False
+    stop: str | list[str] | None = None
+    user: str | None = None  # caller-supplied tenant/user identifier
+    metadata: dict[str, Any] | None = None  # gateway routing hints
 
 
-class Finding(BaseModel):
-    """A single security finding from code analysis."""
-
-    id: str = Field(..., description="Unique identifier for this finding")
-    severity: Severity = Field(..., description="Severity level")
-    line_start: int = Field(..., ge=1, description="Starting line number")
-    line_end: int = Field(..., ge=1, description="Ending line number")
-    vulnerability_type: str = Field(..., description="Type of vulnerability")
-    cwe_id: str | None = Field(default=None, description="CWE identifier (e.g., CWE-89)")
-    owasp_category: str | None = Field(
-        default=None, description="OWASP category (e.g., A03:2021-Injection)"
-    )
-    title: str = Field(..., description="Short title of the finding")
-    description: str = Field(..., description="Detailed description of the issue")
-    recommendation: str = Field(..., description="How to fix the issue")
-    code_snippet: str | None = Field(default=None, description="The vulnerable code snippet")
-    fix_example: str | None = Field(default=None, description="Example of fixed code")
+class Usage(BaseModel):
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
 
 
-class AnalysisSummary(BaseModel):
-    """Summary statistics for the analysis."""
-
-    total: int = Field(..., ge=0, description="Total number of findings")
-    critical: int = Field(default=0, ge=0, description="Number of critical findings")
-    high: int = Field(default=0, ge=0, description="Number of high findings")
-    medium: int = Field(default=0, ge=0, description="Number of medium findings")
-    low: int = Field(default=0, ge=0, description="Number of low findings")
-    info: int = Field(default=0, ge=0, description="Number of info findings")
+class ChoiceMessage(BaseModel):
+    role: str = "assistant"
+    content: str | None = None
 
 
-class AnalysisMetadata(BaseModel):
-    """Metadata about the analysis."""
-
-    language_detected: str = Field(..., description="Detected or specified language")
-    lines_analyzed: int = Field(..., ge=0, description="Number of lines analyzed")
-    scan_time_ms: int = Field(..., ge=0, description="Time taken for analysis in milliseconds")
-    model_used: str = Field(..., description="AI model used for analysis")
+class Choice(BaseModel):
+    index: int = 0
+    message: ChoiceMessage
+    finish_reason: str | None = "stop"
 
 
-class AnalyzeResponse(BaseModel):
-    """Response schema for code analysis endpoint."""
+class GatewayMeta(BaseModel):
+    """Non-standard response field describing how the gateway handled the call."""
 
-    findings: list[Finding] = Field(default_factory=list, description="List of security findings")
-    summary: AnalysisSummary = Field(..., description="Summary of findings")
-    metadata: AnalysisMetadata = Field(..., description="Analysis metadata")
-
-    model_config = {
-        "json_schema_extra": {
-            "examples": [
-                {
-                    "findings": [
-                        {
-                            "id": "f1",
-                            "severity": "HIGH",
-                            "line_start": 1,
-                            "line_end": 1,
-                            "vulnerability_type": "Hardcoded Credentials",
-                            "cwe_id": "CWE-798",
-                            "owasp_category": "A07:2021-Identification and Authentication Failures",
-                            "title": "Hardcoded password detected",
-                            "description": "Password is hardcoded in source code",
-                            "recommendation": "Use environment variables or a secrets manager",
-                            "code_snippet": 'password = "admin123"',
-                            "fix_example": 'password = os.environ.get("DB_PASSWORD")',
-                        }
-                    ],
-                    "summary": {
-                        "total": 1,
-                        "critical": 0,
-                        "high": 1,
-                        "medium": 0,
-                        "low": 0,
-                        "info": 0,
-                    },
-                    "metadata": {
-                        "language_detected": "python",
-                        "lines_analyzed": 2,
-                        "scan_time_ms": 1234,
-                        "model_used": "claude-sonnet-4-5",
-                    },
-                }
-            ]
-        }
-    }
+    provider: str
+    upstream_model: str
+    latency_ms: float
+    cache: Literal["hit", "miss", "bypass"] = "miss"
+    fallback_used: bool = False
+    attempts: list[str] = Field(default_factory=list)
+    cost_usd: float | None = None
 
 
-class HealthResponse(BaseModel):
-    """Response schema for health check endpoint."""
+class ChatCompletionResponse(BaseModel):
+    id: str
+    object: str = "chat.completion"
+    created: int
+    model: str
+    choices: list[Choice]
+    usage: Usage
+    gateway: GatewayMeta | None = None  # gateway extension
 
-    status: str = Field(..., description="Health status")
-    version: str = Field(..., description="API version")
-    bedrock_connected: bool = Field(..., description="Whether Bedrock is accessible")
+
+# ---------- Models endpoint ----------
+
+
+class ModelInfo(BaseModel):
+    id: str
+    object: str = "model"
+    created: int = 0
+    owned_by: str = "llm-gateway"
+
+
+class ModelList(BaseModel):
+    object: str = "list"
+    data: list[ModelInfo]
+
+
+# ---------- Errors (OpenAI-compatible) ----------
+
+
+class ErrorDetail(BaseModel):
+    message: str
+    type: str = "gateway_error"
+    code: str | None = None
 
 
 class ErrorResponse(BaseModel):
-    """Response schema for error responses."""
+    error: ErrorDetail
 
-    error: str = Field(..., description="Error type")
-    message: str = Field(..., description="Error message")
-    details: dict | None = Field(default=None, description="Additional error details")
+
+# ---------- Health ----------
+
+
+class ProviderHealth(BaseModel):
+    name: str
+    healthy: bool
+    circuit: Literal["closed", "open", "half_open"] = "closed"
+
+
+class HealthResponse(BaseModel):
+    status: str
+    version: str
+    providers: list[ProviderHealth]

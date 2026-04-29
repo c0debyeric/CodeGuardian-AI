@@ -41,11 +41,35 @@ spec:
             - name: {{ $key }}
               value: {{ $value | quote }}
             {{- end }}
-          {{- if .Values.externalSecret.enabled }}
-          envFrom:
-            - secretRef:
-                name: {{ .Values.externalSecret.targetSecretName }}
-          {{- end }}
+            {{- if .Values.externalSecret.enabled }}
+            # Compose DATABASE_URL from individual DB credential fields so
+            # the secret stays compatible with other consumers (and so we can
+            # rotate password without re-templating the URL elsewhere).
+            - name: DB_HOST
+              valueFrom:
+                secretKeyRef: { name: {{ .Values.externalSecret.targetSecretName }}, key: DB_HOST }
+            - name: DB_PORT
+              valueFrom:
+                secretKeyRef: { name: {{ .Values.externalSecret.targetSecretName }}, key: DB_PORT }
+            - name: DB_USERNAME
+              valueFrom:
+                secretKeyRef: { name: {{ .Values.externalSecret.targetSecretName }}, key: DB_USERNAME }
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: {{ .Values.externalSecret.targetSecretName }}, key: DB_PASSWORD }
+            - name: DB_NAME
+              valueFrom:
+                secretKeyRef: { name: {{ .Values.externalSecret.targetSecretName }}, key: DB_NAME }
+            - name: DATABASE_URL
+              value: "postgresql+asyncpg://$(DB_USERNAME):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)"
+            {{- end }}
+            {{- if .Values.adminSecret.enabled }}
+            - name: ADMIN_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.adminSecret.targetSecretName }}
+                  key: ADMIN_API_KEY
+            {{- end }}
           livenessProbe:
             httpGet:
               path: {{ .Values.probes.liveness.path }}

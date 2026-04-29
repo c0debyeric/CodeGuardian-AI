@@ -1,55 +1,131 @@
-# CodeGuardian AI - Docker Compose
-# Local development stack
+# LLM Gateway — Local Development Stack
+# All optional services (Redis, Postgres, OTel) are wired so you can demo
+# the full feature set against a single `docker compose up`.
 
 services:
   backend:
     build:
       context: ./app/backend
       dockerfile: Dockerfile
-    container_name: codeguardian-backend
+    container_name: llm-gateway-backend
     ports:
       - "8000:8000"
     environment:
+      # --- Core ---
+      - APP_NAME=LLM Gateway
       - APP_ENV=development
       - APP_DEBUG=true
       - LOG_LEVEL=DEBUG
+      # --- Providers ---
+      - BEDROCK_ENABLED=${BEDROCK_ENABLED:-true}
+      - OPENAI_ENABLED=${OPENAI_ENABLED:-false}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - AWS_REGION=${AWS_REGION:-us-east-1}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
       - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN:-}
-      - BEDROCK_MODEL_ID=${BEDROCK_MODEL_ID:-us.anthropic.claude-sonnet-4-5-20250929-v1:0}
+      - DEFAULT_MODEL=${DEFAULT_MODEL:-auto}
+      - FALLBACK_ENABLED=true
+      # --- Auth + Limits ---
+      - AUTH_ENABLED=${AUTH_ENABLED:-true}
+      - ADMIN_API_KEY=${ADMIN_API_KEY:-dev-admin-key-change-me}
+      - DEMO_TENANT_KEY=${DEMO_TENANT_KEY:-sk-demo-localdev-rotateme}
+      # --- Backing services ---
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql+asyncpg://gateway:gateway@postgres:5432/gateway
+      # --- Guardrails + cache ---
+      - GUARDRAILS_ENABLED=${GUARDRAILS_ENABLED:-true}
+      - GUARDRAILS_REDACT_PII=true
+      - SEMANTIC_CACHE_ENABLED=${SEMANTIC_CACHE_ENABLED:-true}
+      - SEMANTIC_CACHE_MODE=${SEMANTIC_CACHE_MODE:-exact}
+      - SEMANTIC_CACHE_THRESHOLD=${SEMANTIC_CACHE_THRESHOLD:-0.85}
+      - SEMANTIC_CACHE_TTL_SECONDS=3600
+      # --- Observability ---
+      - OTEL_SERVICE_NAME=llm-gateway
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health').raise_for_status()"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 10s
+      start_period: 15s
     restart: unless-stopped
-    networks:
-      - codeguardian-network
+    networks: [llm-gateway-net]
 
-  frontend:
-    build:
-      context: ./app/frontend
-      dockerfile: Dockerfile
-    container_name: codeguardian-frontend
+  redis:
+    image: redis:7-alpine
+    container_name: llm-gateway-redis
     ports:
-      - "8501:8501"
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks: [llm-gateway-net]
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: llm-gateway-postgres
+    ports:
+      - "5432:5432"
     environment:
-      - BACKEND_URL=http://backend:8000
+      POSTGRES_USER: gateway
+      POSTGRES_PASSWORD: gateway
+      POSTGRES_DB: gateway
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gateway -d gateway"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks: [llm-gateway-net]
+
+  # OpenTelemetry collector — receives OTLP gRPC from backend, exports to
+  # whatever you configure (Tempo, Jaeger, console, etc.). Compose ships a
+  # passthrough config; in production this is replaced by the cluster collector.
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.111.0
+    container_name: llm-gateway-otel
+    command: ["--config=/etc/otel/config.yaml"]
+    ports:
+      - "4317:4317"  # OTLP gRPC
+      - "4318:4318"  # OTLP HTTP
+    volumes:
+      - ./docker/otel-collector.yaml:/etc/otel/config.yaml:ro
+    networks: [llm-gateway-net]
+
+  admin-ui:
+    build:
+      context: ./app/admin-ui
+      dockerfile: Dockerfile
+    container_name: llm-gateway-admin-ui
+    ports:
+      - "3000:3000"
+    environment:
+      - GATEWAY_URL=http://backend:8000
+      - ADMIN_API_KEY=${ADMIN_API_KEY:-dev-admin-key-change-me}
+      - NEXT_PUBLIC_GRAFANA_URL=${GRAFANA_URL:-http://localhost:3001}
+      - NEXT_PUBLIC_GRAFANA_DASHBOARD_UID=llm-gateway
     depends_on:
       backend:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8501/_stcore/health').raise_for_status()"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
-    restart: unless-stopped
-    networks:
-      - codeguardian-network
+    networks: [llm-gateway-net]
 
 networks:
-  codeguardian-network:
+  llm-gateway-net:
     driver: bridge
+
+volumes:
+  redis-data:
+  postgres-data:

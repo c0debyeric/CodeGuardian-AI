@@ -9,10 +9,10 @@ variable "backend_repo_name" {
   default     = "backend"
 }
 
-variable "frontend_repo_name" {
+variable "admin_ui_repo_name" {
   type        = string
-  description = "Name for the frontend repository"
-  default     = "frontend"
+  description = "Name for the admin-ui repository"
+  default     = "admin-ui"
 }
 
 variable "image_tag_mutability" {

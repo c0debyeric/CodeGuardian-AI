@@ -80,10 +80,10 @@ variable "ecr_backend_repo_name" {
   default     = "backend"
 }
 
-variable "ecr_frontend_repo_name" {
-  description = "Name for the frontend ECR repository"
+variable "ecr_admin_ui_repo_name" {
+  description = "Name for the admin-ui ECR repository (Next.js console)"
   type        = string
-  default     = "frontend"
+  default     = "admin-ui"
 }
 
 variable "ecr_lifecycle_tag_prefix" {

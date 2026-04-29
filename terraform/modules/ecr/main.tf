@@ -12,8 +12,8 @@ resource "aws_ecr_repository" "backend" {
   tags = var.tags
 }
 
-resource "aws_ecr_repository" "frontend" {
-  name                 = "${var.repository_prefix}/${var.frontend_repo_name}"
+resource "aws_ecr_repository" "admin_ui" {
+  name                 = "${var.repository_prefix}/${var.admin_ui_repo_name}"
   image_tag_mutability = var.image_tag_mutability
   force_delete         = true
 
@@ -27,7 +27,7 @@ resource "aws_ecr_repository" "frontend" {
 resource "aws_ecr_lifecycle_policy" "retention" {
   for_each = toset([
     aws_ecr_repository.backend.name,
-    aws_ecr_repository.frontend.name
+    aws_ecr_repository.admin_ui.name
   ])
 
   repository = each.value

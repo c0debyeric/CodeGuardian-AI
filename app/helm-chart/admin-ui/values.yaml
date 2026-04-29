@@ -1,0 +1,35 @@
+replicaCount: 1
+
+image:
+  repository: "810749429738.dkr.ecr.us-east-1.amazonaws.com/codeguardian/admin-ui"
+  tag: "latest"
+  pullPolicy: Always
+
+service:
+  type: ClusterIP
+  port: 3000
+
+# The admin UI talks to the gateway in-cluster.
+gatewayUrl: "http://llm-gateway-backend.llm-gateway.svc.cluster.local:8000"
+
+# Public-facing Grafana URL — embedded as an iframe on the dashboard page.
+grafana:
+  url: "http://grafana.monitoring.svc.cluster.local"
+  dashboardUid: "llm-gateway"
+
+# Admin API key is pulled from the same Secrets Manager entry as the backend.
+adminSecret:
+  enabled: true
+  secretStore:
+    name: aws-secrets-manager
+    kind: SecretStore
+  remoteSecretName: "llm-gateway/admin-api-key"
+  targetSecretName: "llm-gateway-admin"
+
+resources:
+  requests: { cpu: 50m, memory: 128Mi }
+  limits:   { cpu: 250m, memory: 256Mi }
+
+probes:
+  liveness:  { path: /, initialDelaySeconds: 10, periodSeconds: 30 }
+  readiness: { path: /, initialDelaySeconds: 5,  periodSeconds: 10 }

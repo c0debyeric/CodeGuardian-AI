@@ -1,0 +1,35 @@
+# OpenTelemetry Collector config for local development.
+# Receives OTLP from the backend and prints traces/metrics to stdout
+# so you can `docker compose logs -f otel-collector` to verify wiring.
+# Swap exporters for Tempo/Jaeger/Prometheus remote_write in production.
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    timeout: 5s
+
+exporters:
+  debug:
+    verbosity: normal
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug]
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug]

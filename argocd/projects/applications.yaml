@@ -4,16 +4,18 @@ metadata:
   name: applications
   namespace: argocd
 spec:
-  description: CodeGuardian application workloads
+  description: LLM Gateway application workloads
   
   sourceRepos:
     - 'https://github.com/*'
     - '*'
+    # Bitnami chart repo for in-cluster Redis
+    - 'registry-1.docker.io/bitnamicharts'
   
   destinations:
-    - namespace: codeguardian
+    - namespace: llm-gateway
       server: https://kubernetes.default.svc
-    - namespace: codeguardian-staging
+    - namespace: llm-gateway-staging
       server: https://kubernetes.default.svc
   
   clusterResourceWhitelist:

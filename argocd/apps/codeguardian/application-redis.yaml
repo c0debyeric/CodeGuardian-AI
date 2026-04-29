@@ -1,0 +1,52 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: redis
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: applications
+
+  source:
+    repoURL: registry-1.docker.io/bitnamicharts
+    chart: redis
+    targetRevision: 20.1.0
+    helm:
+      releaseName: redis
+      values: |
+        # Single-node Redis sized for the gateway's distributed rate limiter
+        # and semantic cache. Persistence is enabled so cache survives pod
+        # restarts during demos; in production we'd run replication or
+        # ElastiCache.
+        architecture: standalone
+        auth:
+          enabled: false
+        master:
+          persistence:
+            enabled: true
+            size: 8Gi
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+        metrics:
+          enabled: true
+          serviceMonitor:
+            enabled: true
+            namespace: monitoring
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: llm-gateway
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

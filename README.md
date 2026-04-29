@@ -1,429 +1,280 @@
 <p align="center">
   <img src="https://img.shields.io/badge/AWS-Bedrock-FF9900?style=for-the-badge&logo=amazon-aws&logoColor=white" alt="AWS Bedrock"/>
+  <img src="https://img.shields.io/badge/OpenAI-API_Compatible-412991?style=for-the-badge&logo=openai&logoColor=white" alt="OpenAI Compatible"/>
   <img src="https://img.shields.io/badge/Kubernetes-EKS-326CE5?style=for-the-badge&logo=kubernetes&logoColor=white" alt="Kubernetes"/>
   <img src="https://img.shields.io/badge/Terraform-IaC-7B42BC?style=for-the-badge&logo=terraform&logoColor=white" alt="Terraform"/>
-  <img src="https://img.shields.io/badge/Python-FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white" alt="FastAPI"/>
   <img src="https://img.shields.io/badge/GitOps-ArgoCD-EF7B4D?style=for-the-badge&logo=argo&logoColor=white" alt="ArgoCD"/>
+  <img src="https://img.shields.io/badge/Observability-OpenTelemetry-425CC7?style=for-the-badge&logo=opentelemetry&logoColor=white" alt="OTel"/>
 </p>
 
-<h1 align="center">🛡️ CodeGuardian AI</h1>
+<h1 align="center">LLM Gateway</h1>
 
 <p align="center">
-  <strong>AI-Powered Security Code Reviewer | Production-Grade on AWS EKS</strong>
+  <strong>A multi-provider LLM inference platform — built like internal AI infrastructure at a real company.</strong>
 </p>
 
 <p align="center">
-  <em>Catch vulnerabilities before deployment with real-time, context-aware security analysis powered by AWS Bedrock Claude</em>
+  <em>One OpenAI-compatible API in front of AWS Bedrock and OpenAI, with per-tenant quotas, automatic provider failover,
+  PII guardrails, semantic caching, full cost attribution, and end-to-end OpenTelemetry tracing — running on EKS via GitOps.</em>
 </p>
 
 ---
 
-## 🎯 What Is This?
+## What this project actually solves
 
-**CodeGuardian AI** is a **production-grade AI security platform** deployed on AWS EKS. Developers submit code (Python, JavaScript, Terraform), and the system returns real-time security findings with:
+When a company starts using LLMs in production, the same problems show up regardless of which model they pick:
 
-- ⚠️ **Severity Ratings** (Critical → Info)
-- 📍 **Exact Line Numbers**  
-- 🔧 **Fix Suggestions** with code examples
-- 📚 **CWE/OWASP Mappings** for compliance
+- **Provider lock-in** — code calls `openai.chat.completions.create(...)` directly, so switching to Bedrock or Anthropic requires touching every service.
+- **No cost visibility** — finance can't tell which team or feature is burning the AWS Bedrock bill.
+- **No rate limiting per consumer** — one runaway notebook hammers the API and breaks production for everyone else.
+- **No fallback story** — Bedrock has a regional outage, the whole product is down.
+- **No PII boundary** — random user inputs are flowing straight to a third-party model.
+- **No cache** — the same five prompts are generating Claude calls all day.
 
----
-
-## 💡 Why I Built This
-
-Most AI demos stop at "call an API and display the result." This project proves I can take an AI capability and deploy it as a **production-ready platform service** — with the same infrastructure, security, and observability standards I'd use at work.
-
-Every component reflects a deliberate engineering decision:
-- **Why EKS over Lambda?** Real workloads need persistent connections, autoscaling control, and sidecar observability — not cold starts.
-- **Why ArgoCD over kubectl apply?** GitOps ensures every deployment is auditable, reproducible, and rollback-ready.
-- **Why 6 layers of security?** Defense in depth isn't optional when you're processing untrusted code input through an LLM.
-- **Why Terraform modules?** The same infrastructure patterns I use at enterprise scale (~200 AWS accounts) applied to a focused project.
-
-**This is not a tutorial project. It's a platform I'd deploy at work.**
+This project is the **platform layer that solves all of those at once**. Applications speak the OpenAI Chat Completions API to the gateway and get all of those features for free.
 
 ---
 
-## ✨ Key Features
+## What it does
 
-| Feature | Description |
-|---------|-------------|
-| 🤖 **AI-Powered Analysis** | Claude Sonnet 4.5 via AWS Bedrock for intelligent vulnerability detection |
-| 🏗️ **Infrastructure as Code** | 100% Terraform-managed AWS infrastructure with modular design |
-| ☸️ **Kubernetes Native** | Deployed on EKS with auto-scaling via Karpenter |
-| 🔐 **Zero-Trust Security** | EKS Pod Identity, Network Policies, Pod Security Standards, runtime monitoring |
-| 📦 **GitOps Deployment** | ArgoCD for declarative, Git-driven deployments |
-| 📊 **Full Observability** | Prometheus + Grafana + Loki + OpenTelemetry stack |
-| 🚀 **CI/CD Pipeline** | GitHub Actions → Security scans → ECR → Auto-deploy |
+| Capability | How |
+|---|---|
+| **OpenAI-compatible API** | `POST /v1/chat/completions` — drop-in for the OpenAI SDK. Migrate any existing app by changing the base URL. |
+| **Multi-provider routing** | Ships with AWS Bedrock (Claude 3.5/4) and OpenAI (GPT-4o family). Add a provider by implementing one ABC. |
+| **Automatic failover** | Per-provider circuit breakers (closed → open → half-open). On retryable errors the router transparently retries on the next provider. |
+| **Per-tenant API keys + quotas** | Sliding-window RPM and TPM limits. Per-tenant model allowlists. Optional per-tenant monthly budget. |
+| **Cost attribution** | Every request is priced from a maintained price table; cost per tenant / per model / per feature is exposed via Prometheus and queryable in Grafana. |
+| **Semantic cache** | Deterministic-key cache for now (extensible to embeddings). Cuts upstream cost on repeated prompts. Bounded LRU + TTL. |
+| **PII guardrails** | Inbound messages are scanned for SSN, credit card, email, US phone, etc. Detected types are redacted before the prompt ever leaves the cluster, and emitted as a metric for audit. |
+| **Distributed state** | Rate limiter and cache are pluggable: in-memory by default for dev, Redis in prod (sliding-window via sorted sets). |
+| **Usage history** | Every completion is persisted to Postgres (request id, tenant, model, tokens, cost, latency, fallback?, cache?). Powers admin endpoints and dashboards. |
+| **OpenTelemetry tracing** | OTel auto-instrumentation for FastAPI / httpx / botocore. Every span is enriched with the GenAI semantic-conventions attributes (`gen_ai.system`, `gen_ai.response.model`, `gen_ai.usage.input_tokens`, …) plus gateway-specific attrs. |
+| **Prometheus metrics** | LLM-specific metrics — request rate, P95 latency by provider, tokens by direction, USD cost, cache hit rate, guardrail events, provider failures. |
+| **Admin API** | Create/list tenants, view usage by tenant or by model, all guarded by an `X-Admin-Key` separate from tenant keys. |
 
 ---
 
-## 🏛️ Architecture
+## Why I built it this way
 
-### High-Level Infrastructure
+| Decision | Rationale |
+|---|---|
+| **OpenAI-compatible API** | Zero migration cost for any team already using the OpenAI SDK. The most realistic adoption path for an internal platform. |
+| **Provider abstraction as an ABC** | Adding the next provider (Anthropic direct, Azure OpenAI, Google) is a focused PR — implement four methods. No router changes. |
+| **Routes for `auto`/`cheapest`/`fastest` aliases, but concrete models stay literal** | If a caller asks for `gpt-4o`, they get GPT-4o or a 503 — never silently get Claude. Quietly substituting models breaks evaluations and cost forecasts. |
+| **Separate sliding-window rate limit (RPM) from token limit (TPM)** | These are independent failure modes — a small number of huge prompts can blow the TPM budget without ever hitting RPM. |
+| **Cost is computed in the gateway, not pulled from provider invoices** | Real-time per-request cost, no day-late bill reconciliation. Token counts come back in every provider response. |
+| **Sliding-window via Redis sorted sets** | O(log N), atomic via Lua script, no clock-drift issues, scales to multiple gateway pods. |
+| **Pluggable backends with in-memory defaults** | The full test suite runs in-process with `aiosqlite::memory:` and dict-based stores. No Docker required to develop. |
+| **Lifespan handler over deprecated `on_event`** | Aligned with current FastAPI guidance; the lifespan also drives `init_db()` so schema is ready before the first request. |
+| **GenAI OpenTelemetry semantic conventions** | Future-proof — vendors are converging on `gen_ai.*` attributes. Our spans drop straight into Tempo / Datadog / Honeycomb LLM views. |
+
+---
+
+## Architecture
 
 ```mermaid
 flowchart LR
-    subgraph Internet["🌐 Internet"]
-        User["👤 Developer"]
+    subgraph Clients["Application teams"]
+        A1["Backend service<br/>(OpenAI SDK)"]
+        A2["Notebook"]
+        A3["Internal tool"]
     end
-    
-    subgraph AWS["☁️ AWS Cloud (us-east-2)"]
-        subgraph Public["Public Subnets"]
-            ALB["⚖️ ALB"]
-            NAT["🔀 NAT<br/>Gateway"]
-        end
-        
-        subgraph Private["Private Subnets - EKS Cluster v1.34"]
-            FastAPI["🔒 FastAPI<br/>Backend"]
-            Streamlit["🎨 Streamlit<br/>UI"]
-            ArgoCD["📦 ArgoCD"]
-            Prom["📊 Prometheus"]
-            Grafana["📈 Grafana"]
-            Loki["📋 Loki"]
-        end
-        
-        subgraph Database["Database Subnets"]
-            RDS[("🗄️ PostgreSQL<br/>RDS")]
-        end
-        
-        subgraph Managed["AWS Managed Services"]
-            Bedrock["🤖 Bedrock<br/>Claude 4.5"]
-            Secrets["🔑 Secrets<br/>Manager"]
-            ECR["🐳 ECR<br/>Registry"]
-            S3["📦 S3<br/>Buckets"]
-        end
-        
-        subgraph Endpoints["VPC Endpoints"]
-            ECREP["ECR Interface<br/>$43/mo"]
-            S3EP["S3 Gateway<br/>FREE"]
-        end
+
+    subgraph Gateway["LLM Gateway (FastAPI on EKS)"]
+        Auth["API key auth<br/>+ RPM/TPM limits"]
+        Guard["PII guardrails"]
+        Cache["Semantic cache"]
+        Router["Router<br/>+ circuit breakers"]
+        Cost["Pricing + usage<br/>recording"]
     end
-    
-    User -->|HTTPS| ALB
-    ALB --> FastAPI
-    ALB --> Streamlit
-    FastAPI --> RDS
-    FastAPI -->|via NAT| Bedrock
-    FastAPI -->|via NAT| Secrets
-    FastAPI --> Prom
-    FastAPI --> Loki
-    Prom --> Grafana
-    Loki --> Grafana
-    ArgoCD -.->|GitOps| FastAPI
-    ArgoCD -.->|GitOps| Streamlit
-    Private -->|Pull Images| ECREP
-    ECREP --> ECR
-    Private --> S3EP
-    S3EP --> S3
-    
-    classDef userStyle fill:#4A90E2,stroke:#2E5C8A,stroke-width:2px,color:#fff
-    classDef awsService fill:#FF9900,stroke:#232F3E,stroke-width:2px,color:#fff
-    classDef compute fill:#009688,stroke:#00695C,stroke-width:2px,color:#fff
-    classDef database fill:#527FFF,stroke:#3D5FBF,stroke-width:2px,color:#fff
-    classDef security fill:#DD344C,stroke:#A32535,stroke-width:2px,color:#fff
-    classDef platform fill:#7B42BC,stroke:#5A2F8F,stroke-width:2px,color:#fff
-    
-    class User userStyle
-    class ALB,NAT,ECREP,S3EP awsService
-    class FastAPI,Streamlit compute
-    class RDS database
-    class Bedrock,Secrets,ECR,S3 security
-    class ArgoCD,Prom,Grafana,Loki platform
+
+    subgraph State["Cluster state"]
+        Redis[("Redis<br/>(rate limit + cache)")]
+        Postgres[("RDS Postgres<br/>(usage history)")]
+    end
+
+    subgraph Providers["Upstream providers"]
+        Bedrock["AWS Bedrock<br/>Claude 3.5/4"]
+        OpenAI["OpenAI<br/>GPT-4o family"]
+    end
+
+    subgraph Telemetry["Observability"]
+        Otel["OTel Collector"]
+        Prom["Prometheus"]
+        Graf["Grafana<br/>(cost dashboard)"]
+    end
+
+    A1 & A2 & A3 -->|"POST /v1/chat/completions"| Auth
+    Auth --> Guard --> Cache --> Router --> Cost
+    Router -->|primary| Bedrock
+    Router -.->|fallback on retryable error| OpenAI
+    Auth <--> Redis
+    Cache <--> Redis
+    Cost --> Postgres
+    Gateway -.->|spans + metrics| Otel
+    Otel --> Prom --> Graf
 ```
 
-### 🔄 Request Flow & Data Path
+### Request lifecycle
 
-```mermaid
-sequenceDiagram
-    participant User as 👤 Developer
-    participant ALB as ⚖️ ALB
-    participant FastAPI as 🔒 FastAPI Pod
-    participant RDS as 🗄️ PostgreSQL
-    participant ESO as 🔐 ESO
-    participant Secrets as 🔑 Secrets Mgr
-    participant Bedrock as 🤖 Bedrock AI
-    participant Prom as 📊 Prometheus
-    participant Loki as 📋 Loki
-    
-    User->>ALB: POST /analyze (code)
-    ALB->>FastAPI: Route request
-    
-    Note over FastAPI,ESO: Startup: Fetch DB credentials
-    ESO->>Secrets: Get credentials (via NAT)
-    Secrets-->>ESO: Return secrets
-    ESO-->>FastAPI: Inject as env vars
-    
-    FastAPI->>RDS: Check analysis cache
-    RDS-->>FastAPI: Cache miss
-    
-    FastAPI->>Bedrock: Analyze code (via NAT)
-    Note over Bedrock: Claude Sonnet 4.5<br/>Security Analysis
-    Bedrock-->>FastAPI: Return findings
-    
-    FastAPI->>RDS: Store analysis results
-    FastAPI->>Prom: Record metrics (latency, tokens)
-    FastAPI->>Loki: Ship structured logs
-    
-    FastAPI-->>ALB: JSON response
-    ALB-->>User: Security findings
-    
-    Note over Prom,Loki: Observability Stack<br/>Grafana dashboards<br/>Alertmanager rules
-```
-
-### 💰 Cost-Optimized VPC Endpoints Strategy
-
-| Service | Access Method | Monthly Cost | Rationale |
-|---------|---------------|--------------|-----------|
-| **S3** | Gateway Endpoint | **$0** | Free - always include |
-| **ECR** | Interface Endpoint | **~$43** | Multi-GB image pulls justify cost |
-| **Bedrock** | NAT Gateway | **~$2-10** | API payloads <50KB, infrequent |
-| **Secrets Mgr** | NAT Gateway | **<$1** | Fetched once at pod startup |
-| **Other AWS APIs** | NAT Gateway | **Included** | Low volume traffic |
-
-> **Total VPC Endpoint Savings:** ~$64/month vs. having endpoints for all services
+1. **Auth** — `Authorization: Bearer sk-<tenant>-...` is hashed (SHA-256) and looked up. Anonymous mode is supported for dev.
+2. **Quotas** — Sliding-window RPM check first (rejects with 429 + `Retry-After`). Token budget pre-check.
+3. **Model allowlist** — If the tenant isn't allowed to call `gpt-4o`, 403 before any provider is contacted.
+4. **Guardrails** — If enabled, messages are regex-scanned for PII; matches are replaced with `[REDACTED-{type}]` and counted as a Prometheus event.
+5. **Cache** — Deterministic key over (model, canonicalized messages, sampling params). Hits return immediately and are recorded as `cache="hit"`.
+6. **Routing** — Concrete model → providers that serve it. Aliases (`auto`/`cheapest`/`fastest`) → the price-ranked or default chain. Fallback walks the chain on retryable errors only.
+7. **Charge + persist** — Token usage is debited against the tenant's TPM budget and a `UsageRecord` is written to Postgres.
+8. **Telemetry** — Counters, histograms, and OTel `gen_ai.*` span attributes are emitted on the way out.
 
 ---
 
-## 🛠️ Technology Stack
+## API
 
-### Infrastructure Layer
-| Category | Technology | Purpose |
-|:---------|:-----------|:--------|
-| **IaC** | Terraform | Modular AWS provisioning |
-| **Compute** | EKS Auto Mode | Managed Kubernetes with Karpenter |
-| **Networking** | VPC + VPC CNI | Isolated network with native NetworkPolicy |
-| **Storage** | S3 (encrypted) | Document & state storage |
-| **Secrets** | AWS Secrets Manager + ESO | Zero hardcoded credentials |
-| **Certificates** | ACM + cert-manager | TLS everywhere |
-
-### Platform Layer (Kubernetes Add-ons)
-| Category | Components |
-|:---------|:-----------|
-| **GitOps** | ArgoCD (App of Apps pattern) |
-| **Security** | Kyverno • Falco • Trivy |
-| **Observability** | Prometheus • Grafana • Loki • Tempo |
-| **Networking** | AWS Load Balancer Controller • VPC CNI |
-| **Operations** | Velero • Kubecost |
-
-### Application Layer
-| Component | Technology |
-|:----------|:-----------|
-| **Backend API** | Python 3.13 + FastAPI |
-| **Frontend UI** | Streamlit |
-| **AI Engine** | AWS Bedrock (Claude Sonnet 4.5) |
-| **Logging** | Structlog (JSON format) |
-| **Testing** | Pytest + pytest-asyncio |
-
----
-
-## 🔒 Security Model (Defense in Depth)
-
-This project implements **6 layers of security controls**:
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  🌐 NETWORK         VPC isolation • Security Groups            │
-│                     VPC CNI Network Policies • Private subnets │
-├─────────────────────────────────────────────────────────────────┤
-│  🔑 IDENTITY        EKS Pod Identity • Least-privilege IAM     │
-│                     RBAC • No long-lived credentials           │
-├─────────────────────────────────────────────────────────────────┤
-│  🔐 DATA            KMS encryption at rest • TLS in transit    │
-│                     Secrets Manager • No secrets in code       │
-├─────────────────────────────────────────────────────────────────┤
-│  🛡️ RUNTIME         Pod Security Standards • Falco monitoring  │
-│                     Non-root containers • Read-only filesystems│
-├─────────────────────────────────────────────────────────────────┤
-│  📦 SUPPLY CHAIN    Trivy scanning in CI • Signed images       │
-│                     Kyverno blocking unsigned deployments      │
-├─────────────────────────────────────────────────────────────────┤
-│  📊 AUDIT           CloudTrail • Centralized logging (Loki)    │
-│                     Prometheus alerting • Full traceability    │
-└─────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## 📂 Project Structure
-
-```
-CodeGuardian-AI/
-├── 📁 app/
-│   ├── backend/              # FastAPI security analysis service
-│   │   ├── src/
-│   │   │   ├── api/          # Routes, schemas, endpoints
-│   │   │   ├── services/     # Bedrock client, analyzer logic
-│   │   │   └── core/         # Config, prompts, settings
-│   │   ├── tests/            # Unit & integration tests
-│   │   └── Dockerfile        # Multi-stage production build
-│   ├── frontend/             # Streamlit UI application
-│   └── helm-chart/           # Kubernetes deployment charts
-│
-├── 📁 terraform/
-│   ├── modules/
-│   │   ├── networking/       # VPC, subnets, NAT, flow logs
-│   │   ├── eks/              # EKS cluster, Pod Identity, Helm addons
-│   │   ├── ecr/              # Container registry
-│   │   ├── secrets-manager/  # Secrets management
-│   │   └── ...               # Additional modules
-│   └── environments/         # dev.tfvars, prod.tfvars
-│
-├── 📁 docs/                  # Architecture & planning docs
-├── 📄 docker-compose.yml     # Local development stack
-└── 📄 Makefile               # Common automation commands
-```
-
----
-
-## 🚀 Quick Start
-
-### Prerequisites
-- AWS Account with Bedrock access (Claude enabled)
-- Docker & Docker Compose
-- Terraform ≥ 1.0
-- kubectl & AWS CLI configured
-
-### Local Development
+### Chat completions (OpenAI-compatible)
 
 ```bash
-# Clone the repository
-git clone https://github.com/yourusername/CodeGuardian-AI.git
-cd CodeGuardian-AI
-
-# Set up environment variables
-cp .env.example .env
-# Edit .env with your AWS credentials
-
-# Start the application
-docker-compose up
-
-# Access the services
-# Backend API:  http://localhost:8000/docs
-# Frontend UI:  http://localhost:8501
+curl -s http://localhost:8000/v1/chat/completions \
+  -H "Authorization: Bearer sk-demo-localdev-rotateme" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "auto",
+    "messages": [{"role": "user", "content": "Write a haiku about Kubernetes."}]
+  }' | jq
 ```
 
-### Deploy to AWS
+Response (truncated):
 
-```bash
-# Initialize Terraform
-cd terraform
-terraform init
-
-# Deploy infrastructure
-terraform plan -var-file=environments/dev.tfvars
-terraform apply -var-file=environments/dev.tfvars
-
-# Configure kubectl
-aws eks update-kubeconfig --name codeguardian-dev
-
-# Verify deployment
-kubectl get nodes
-kubectl get pods -A
-```
-
----
-
-## 📡 API Reference
-
-### `POST /analyze` — Analyze Code for Vulnerabilities
-
-**Request:**
-```json
+```jsonc
 {
-  "code": "user_id = request.args.get('id')\nquery = f'SELECT * FROM users WHERE id = {user_id}'",
-  "language": "python",
-  "context": "This is a Flask web application"
-}
-```
-
-**Response:**
-```json
-{
-  "findings": [
-    {
-      "id": "f1",
-      "severity": "CRITICAL",
-      "line_start": 2,
-      "line_end": 2,
-      "vulnerability_type": "SQL Injection",
-      "cwe_id": "CWE-89",
-      "owasp_category": "A03:2021-Injection",
-      "title": "SQL Injection vulnerability detected",
-      "description": "User input directly concatenated into SQL query",
-      "recommendation": "Use parameterized queries",
-      "fix_example": "cursor.execute('SELECT * FROM users WHERE id = ?', (user_id,))"
-    }
-  ],
-  "summary": {
-    "total": 1,
-    "critical": 1,
-    "high": 0,
-    "medium": 0,
-    "low": 0
-  },
-  "metadata": {
-    "language_detected": "python",
-    "lines_analyzed": 2,
-    "scan_time_ms": 1250,
-    "model_used": "claude-sonnet-4-5"
+  "id": "chatcmpl-...",
+  "object": "chat.completion",
+  "model": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+  "choices": [{ "message": { "role": "assistant", "content": "..." }, "finish_reason": "stop" }],
+  "usage": { "prompt_tokens": 18, "completion_tokens": 22, "total_tokens": 40 },
+  "gateway": {
+    "provider": "bedrock",
+    "upstream_model": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+    "latency_ms": 612,
+    "cache": "miss",
+    "fallback_used": false,
+    "attempts": ["bedrock"],
+    "cost_usd": 0.000384
   }
 }
 ```
 
-### `GET /health` — Health Check
-```json
-{
-  "status": "healthy",
-  "version": "0.1.0",
-  "bedrock_connected": true
-}
+The `gateway` object is the gateway's value-add — provider used, fallback story, real cost, real latency.
+
+### Models
+
+```
+GET /v1/models           # OpenAI-compatible model list (with aliases)
+GET /health              # Provider health states + circuit-breaker status
+GET /metrics             # Prometheus scrape endpoint
+```
+
+### Admin (requires `X-Admin-Key`)
+
+```
+POST /admin/tenants                  # Create tenant + return plaintext API key (shown once)
+GET  /admin/tenants                  # List tenants and their limits
+GET  /admin/usage/by-tenant?since=   # Aggregate cost / tokens per tenant
+GET  /admin/usage/by-model?since=    # Aggregate cost / tokens per upstream model
 ```
 
 ---
 
-## 📊 Observability Stack
+## Quick start (local)
 
-| Component | Tool | Purpose |
-|:----------|:-----|:--------|
-| **Metrics** | Prometheus + Grafana | Resource utilization, API latency, error rates |
-| **Logs** | Loki | Centralized log aggregation with LogQL |
-| **Traces** | OpenTelemetry → Tempo | Distributed request tracing |
-| **Alerts** | Alertmanager | Incident notification & escalation |
-| **Runtime** | Falco | Security event detection |
+Requires Docker and `uv` (or Python 3.13).
 
----
+```bash
+# 1. Bring up backend + Redis + Postgres + OTel collector
+docker compose up --build
 
-## 🎓 Skills Demonstrated
+# 2. (in another shell) hit the gateway
+curl -s http://localhost:8000/v1/models \
+  -H "Authorization: Bearer sk-demo-localdev-rotateme" | jq
+```
 
-### ☁️ Cloud & Infrastructure
-- **AWS Services:** EKS, Bedrock, VPC, IAM, Secrets Manager, ECR, ALB, S3, KMS
-- **Infrastructure as Code:** Terraform with modular design — same patterns used across ~200 production accounts
-- **Kubernetes:** Deployments, Services, RBAC, Network Policies, Helm charts, Karpenter autoscaling
+Run the test suite:
 
-### 🤖 AI / LLM Integration
-- **Model Integration:** AWS Bedrock (Claude Sonnet 4.5) with structured prompt engineering
-- **Prompt Design:** Security-domain system prompts producing structured JSON with CWE/OWASP mappings
-- **Production Patterns:** Error handling, retry logic, response validation, token tracking
+```bash
+cd app/backend
+uv sync
+uv run pytest -v
+```
 
-### 🔐 Security & DevSecOps
-- **Zero-Trust Architecture:** EKS Pod Identity, pod-level IAM, no static credentials
-- **Policy Enforcement:** Kyverno admission policies, Pod Security Standards
-- **Runtime Security:** Falco syscall monitoring for anomaly detection
-- **Supply Chain Security:** Trivy container scanning, Checkov IaC scanning, multi-stage CI gates
-
-### 📊 Observability & SRE
-- **Metrics:** Prometheus with custom application metrics, Grafana dashboards
-- **Logging:** Structured JSON logging (structlog) → Loki with LogQL
-- **Tracing:** OpenTelemetry auto-instrumentation → Tempo
-- **Alerting:** Alertmanager with escalation rules
-
-### 🚀 CI/CD & GitOps
-- **GitOps:** ArgoCD with App of Apps pattern — single source of truth
-- **Pipelines:** GitHub Actions with security-first gates (Gitleaks, Semgrep, Snyk, Checkov, Trivy)
-- **Container Registry:** ECR with automated vulnerability scanning on push
+35+ tests cover routing, fallback, circuit breakers, auth, RPM/TPM limits, admin endpoints, usage persistence, PII guardrails, semantic cache, and Prometheus metrics — all in-process, no Docker required.
 
 ---
 
-<p align="center">
-  <a href="#-what-is-this">Back to Top</a>
-</p>
+## Deploy to AWS
+
+End-to-end bootstrap is automated:
+
+```bash
+python RUNME.py preflight       # Verify aws/kubectl/terraform/helm/docker
+python RUNME.py terraform --env dev   # VPC + EKS + RDS + ECR + Secrets Manager
+python RUNME.py images          # Build + push backend image to ECR
+python RUNME.py deploy          # Apply ArgoCD root-app; everything syncs from Git
+python RUNME.py validate        # Hit /health and confirm provider state
+```
+
+What you get:
+- **VPC** with public / private / database subnets across 3 AZs
+- **EKS 1.34** with Karpenter autoscaling and IRSA for Bedrock access
+- **RDS Postgres** in the database subnets (usage history)
+- **In-cluster Redis** (Bitnami chart, ArgoCD-managed)
+- **ECR** for the backend image
+- **Secrets Manager** entries for DB creds and the admin API key, surfaced via External Secrets Operator
+- **ArgoCD** as the single sync target — every workload (gateway, Redis, observability stack, dashboards) is GitOps-driven from `argocd/`
+- **Prometheus + Grafana + Loki + OTel collector** in the `monitoring` namespace
+
+When you're done:
+
+```bash
+python RUNME.py destroy --env dev
+```
+
+---
+
+## Repository layout
+
+```
+.
+├── app/
+│   ├── backend/               # FastAPI gateway (this is the project)
+│   │   ├── src/
+│   │   │   ├── api/           # FastAPI routes + OpenAI-compatible schemas
+│   │   │   ├── auth/          # API keys, tenants, sliding-window rate limiter
+│   │   │   ├── core/          # Settings (pydantic-settings), logging
+│   │   │   ├── middleware/    # PII guardrails, semantic cache
+│   │   │   ├── observability/ # Prometheus metrics + OTel GenAI attrs
+│   │   │   ├── providers/     # Provider ABC, Bedrock, OpenAI, registry, pricing
+│   │   │   ├── routing/       # Routing policies + fallback router
+│   │   │   └── usage/         # SQLAlchemy usage table + repository
+│   │   └── tests/             # 35+ tests, all in-process
+│   └── helm-chart/
+│       └── backend/           # Production Helm chart (HPA, PDB, NetworkPolicy, ServiceMonitor, ExternalSecret)
+├── argocd/
+│   ├── apps/codeguardian/     # ArgoCD Applications: gateway, Redis, namespace
+│   ├── dashboards/            # Grafana dashboard JSON (LLM cost + latency)
+│   └── root-app.yaml          # App-of-apps entry point
+├── terraform/
+│   ├── modules/{networking,eks,rds,ecr,acm,secrets-manager,vpc-endpoints,s3}/
+│   └── environments/{dev,prod}/
+├── docker-compose.yml         # Local stack: gateway + Redis + Postgres + OTel
+└── RUNME.py                   # Bootstrap CLI (typer + rich)
+```
+
+---
+
+## Roadmap
+
+The platform pieces below are designed-for but not yet implemented. They're called out so the architecture choices above make sense.
+
+- **Real upstream streaming** — `stream=true` already returns a valid OpenAI-compatible `text/event-stream` (the OpenAI Python SDK works against it unmodified). It currently buffers the upstream response and chunks it into deltas; per-provider native streaming (Bedrock `invoke_model_with_response_stream`, OpenAI `stream=true`) is a drop-in next step that won't change the wire shape.
+- **Production-grade embedder** — `SEMANTIC_CACHE_MODE=semantic` enables embedding + cosine NN matching today, backed by a dependency-free hashing embedder. Swap `set_embedder(...)` for an OpenAI / Bedrock Titan / sentence-transformers model and the cache code stays the same.
+- **Admin UI** — REST is in place; a small React/Next.js dashboard for tenants, keys, and live cost is the natural follow-up.
+- **WAF / rate limit at the edge** — currently relies on application-layer limits.

@@ -1,0 +1,210 @@
+# Grafana dashboard for the LLM Gateway.
+#
+# Sourced from the LLM-specific Prometheus metrics emitted by
+# src/observability/metrics.py:
+#   llm_requests_total
+#   llm_request_duration_seconds
+#   llm_tokens_total
+#   llm_cost_usd_total
+#   llm_cache_events_total
+#   llm_guardrail_events_total
+#   llm_provider_failures_total
+#
+# The ConfigMap label `grafana_dashboard: "1"` is what the kube-prometheus-stack
+# Grafana sidecar watches for; new dashboards appear in the UI on apply.
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: llm-gateway-dashboard
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  llm-gateway.json: |-
+    {
+      "title": "LLM Gateway",
+      "uid": "llm-gateway",
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "30s",
+      "time": { "from": "now-6h", "to": "now" },
+      "templating": {
+        "list": [
+          {
+            "name": "tenant",
+            "type": "query",
+            "datasource": "Prometheus",
+            "query": "label_values(llm_requests_total, tenant)",
+            "includeAll": true,
+            "multi": true,
+            "current": { "text": "All", "value": "$__all" }
+          },
+          {
+            "name": "provider",
+            "type": "query",
+            "datasource": "Prometheus",
+            "query": "label_values(llm_requests_total, provider)",
+            "includeAll": true,
+            "multi": true,
+            "current": { "text": "All", "value": "$__all" }
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1,
+          "title": "Total spend (selected window)",
+          "type": "stat",
+          "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+          "targets": [
+            {
+              "expr": "sum(increase(llm_cost_usd_total{tenant=~\"$tenant\", provider=~\"$provider\"}[$__range]))",
+              "legendFormat": "USD"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": { "unit": "currencyUSD", "decimals": 2 }
+          }
+        },
+        {
+          "id": 2,
+          "title": "Requests / sec",
+          "type": "stat",
+          "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+          "targets": [
+            {
+              "expr": "sum(rate(llm_requests_total{tenant=~\"$tenant\", provider=~\"$provider\"}[5m]))"
+            }
+          ],
+          "fieldConfig": { "defaults": { "unit": "reqps" } }
+        },
+        {
+          "id": 3,
+          "title": "Cache hit ratio",
+          "type": "stat",
+          "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+          "targets": [
+            {
+              "expr": "sum(rate(llm_cache_events_total{tenant=~\"$tenant\", event=\"hit\"}[5m])) / clamp_min(sum(rate(llm_cache_events_total{tenant=~\"$tenant\"}[5m])), 0.0001)"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": { "unit": "percentunit", "min": 0, "max": 1, "decimals": 1 }
+          }
+        },
+        {
+          "id": 4,
+          "title": "PII redactions / sec",
+          "type": "stat",
+          "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+          "targets": [
+            {
+              "expr": "sum(rate(llm_guardrail_events_total{tenant=~\"$tenant\"}[5m]))"
+            }
+          ],
+          "fieldConfig": { "defaults": { "unit": "ops" } }
+        },
+
+        {
+          "id": 10,
+          "title": "Cost per tenant ($/min)",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+          "targets": [
+            {
+              "expr": "sum by (tenant) (rate(llm_cost_usd_total{tenant=~\"$tenant\", provider=~\"$provider\"}[1m])) * 60",
+              "legendFormat": "{{tenant}}"
+            }
+          ],
+          "fieldConfig": { "defaults": { "unit": "currencyUSD" } }
+        },
+        {
+          "id": 11,
+          "title": "Cost per upstream model ($/min)",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+          "targets": [
+            {
+              "expr": "sum by (upstream_model) (rate(llm_cost_usd_total{tenant=~\"$tenant\", provider=~\"$provider\"}[1m])) * 60",
+              "legendFormat": "{{upstream_model}}"
+            }
+          ],
+          "fieldConfig": { "defaults": { "unit": "currencyUSD" } }
+        },
+
+        {
+          "id": 20,
+          "title": "P50 / P95 / P99 latency by provider",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.50, sum by (le, provider) (rate(llm_request_duration_seconds_bucket{tenant=~\"$tenant\", provider=~\"$provider\"}[5m])))",
+              "legendFormat": "p50 {{provider}}"
+            },
+            {
+              "expr": "histogram_quantile(0.95, sum by (le, provider) (rate(llm_request_duration_seconds_bucket{tenant=~\"$tenant\", provider=~\"$provider\"}[5m])))",
+              "legendFormat": "p95 {{provider}}"
+            },
+            {
+              "expr": "histogram_quantile(0.99, sum by (le, provider) (rate(llm_request_duration_seconds_bucket{tenant=~\"$tenant\", provider=~\"$provider\"}[5m])))",
+              "legendFormat": "p99 {{provider}}"
+            }
+          ],
+          "fieldConfig": { "defaults": { "unit": "s" } }
+        },
+        {
+          "id": 21,
+          "title": "Token throughput (in / out)",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+          "targets": [
+            {
+              "expr": "sum by (direction) (rate(llm_tokens_total{tenant=~\"$tenant\", provider=~\"$provider\"}[1m]))",
+              "legendFormat": "{{direction}}"
+            }
+          ],
+          "fieldConfig": { "defaults": { "unit": "ops" } }
+        },
+
+        {
+          "id": 30,
+          "title": "Provider failures (rate)",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+          "targets": [
+            {
+              "expr": "sum by (provider, reason) (rate(llm_provider_failures_total{provider=~\"$provider\"}[5m]))",
+              "legendFormat": "{{provider}} / {{reason}}"
+            }
+          ]
+        },
+        {
+          "id": 31,
+          "title": "Cache events (hit / miss / bypass)",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
+          "targets": [
+            {
+              "expr": "sum by (event) (rate(llm_cache_events_total{tenant=~\"$tenant\"}[5m]))",
+              "legendFormat": "{{event}}"
+            }
+          ]
+        },
+
+        {
+          "id": 40,
+          "title": "Top tenants by spend (selected window)",
+          "type": "table",
+          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 28 },
+          "targets": [
+            {
+              "expr": "topk(10, sum by (tenant) (increase(llm_cost_usd_total{tenant=~\"$tenant\"}[$__range])))",
+              "format": "table",
+              "instant": true
+            }
+          ]
+        }
+      ]
+    }
