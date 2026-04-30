@@ -88,8 +88,9 @@ spec:
     kind: {{ .Values.adminSecret.secretStore.kind }}
   target:
     # Same secret name as the backend; both deployments mount it.
+    # Merge (not Owner) so we don't fight backend's ExternalSecret for ownership.
     name: {{ .Values.adminSecret.targetSecretName }}
-    creationPolicy: Owner
+    creationPolicy: Merge
   data:
     - secretKey: ADMIN_API_KEY
       remoteRef:
