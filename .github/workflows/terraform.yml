@@ -21,12 +21,16 @@ jobs:
     name: Terraform
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    defaults:
+      run:
+        # All .tf files live under terraform/, so run fmt/init/validate there.
+        working-directory: terraform
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3.1.2
+        uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.14.3
 
@@ -69,7 +73,8 @@ jobs:
         run: tflint
 
       - name: Run Trivy security scan
-        uses: aquasecurity/trivy-action@0.33.1
+        # @master tracks the latest release; the 0.33.1 tag does not exist.
+        uses: aquasecurity/trivy-action@master
         with:
           scan-type: 'config'
           scan-ref: '.'
@@ -79,7 +84,7 @@ jobs:
         continue-on-error: true
 
       - name: Upload Trivy results to GitHub Security
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@v3
         if: always() && hashFiles('trivy-results.sarif') != ''
         continue-on-error: true
         with:

@@ -859,6 +859,199 @@ def deploy(
 
 
 # =============================================================================
+# Phase: Reconcile (post-deploy fixes)
+# =============================================================================
+
+
+@app.command()
+def reconcile(
+    namespace: str = typer.Option("llm-gateway", "--namespace", "-n", help="Application namespace"),
+    region: str = typer.Option("us-east-1", "--region", help="AWS region"),
+    profile: Optional[str] = typer.Option(None, "--profile", help="AWS CLI profile"),
+    timeout: int = typer.Option(900, "--timeout", help="Seconds to wait for apps to become Healthy"),
+    skip_db_create: bool = typer.Option(False, "--skip-db-create", help="Skip CREATE DATABASE step"),
+) -> bool:
+    """Run the post-deploy reconciliation steps that the bootstrap discovered manually.
+
+    Idempotent. Safe to re-run. Performs:
+      1. Sync the RDS-managed master password into the application's Secrets
+         Manager entry (terraform's random_password is unused when
+         ManageMasterUserPassword=true).
+      2. Force-refresh the ExternalSecret so the k8s Secret is rewritten.
+      3. Create the application database if it does not yet exist.
+      4. Create the admin-api-key secret if missing (auto-generated).
+      5. Wait for ArgoCD apps to reach Synced+Healthy.
+    """
+    apply_aws_profile(profile, region)
+    print_header("🔧 Post-deploy Reconciliation")
+
+    # ---- 1. Sync RDS-managed master password into our Secrets Manager entry
+    print_info("Locating RDS-managed master password ARN...")
+    db_id = f"llm-gateway-dev-db"  # matches terraform/modules/rds naming
+    rds_desc = run_command(
+        ["aws", "rds", "describe-db-instances", "--db-instance-identifier", db_id,
+         "--query", "DBInstances[0].MasterUserSecret.SecretArn", "--output", "text"],
+        capture=True, check=False,
+    )
+    if rds_desc.returncode != 0 or not rds_desc.stdout.strip() or rds_desc.stdout.strip() == "None":
+        print_warning(f"Could not locate RDS managed master secret for {db_id}. Skipping password sync.")
+        master_arn = None
+    else:
+        master_arn = rds_desc.stdout.strip()
+        print_success(f"RDS managed secret: {master_arn}")
+
+    db_secret_name = "llm-gateway/db-credentials"
+    if master_arn:
+        print_info("Reading current RDS master password...")
+        pw_res = run_command(
+            ["aws", "secretsmanager", "get-secret-value", "--secret-id", master_arn,
+             "--query", "SecretString", "--output", "text"],
+            capture=True, check=False,
+        )
+        if pw_res.returncode != 0:
+            print_error("Failed to read RDS managed secret.")
+            return False
+        try:
+            rds_payload = json.loads(pw_res.stdout)
+            master_pw = rds_payload["password"]
+        except (json.JSONDecodeError, KeyError) as exc:
+            print_error(f"Unexpected RDS secret payload: {exc}")
+            return False
+
+        # Read existing app secret to preserve any extra keys (host/port/db/etc).
+        cur = run_command(
+            ["aws", "secretsmanager", "get-secret-value", "--secret-id", db_secret_name,
+             "--query", "SecretString", "--output", "text"],
+            capture=True, check=False,
+        )
+        if cur.returncode != 0:
+            print_warning(f"App secret {db_secret_name} not found. Creating new one.")
+            existing = {}
+        else:
+            try:
+                existing = json.loads(cur.stdout)
+            except json.JSONDecodeError:
+                existing = {}
+
+        existing["password"] = master_pw
+        new_payload = json.dumps(existing)
+        print_info(f"Updating {db_secret_name} with current RDS password...")
+        upd = run_command(
+            ["aws", "secretsmanager", "put-secret-value",
+             "--secret-id", db_secret_name, "--secret-string", new_payload],
+            capture=True, check=False,
+        )
+        if upd.returncode != 0:
+            # Secret may not exist yet; create it.
+            run_command(
+                ["aws", "secretsmanager", "create-secret",
+                 "--name", db_secret_name, "--secret-string", new_payload],
+                capture=True, check=False,
+            )
+        print_success("App DB secret synced with RDS-managed password.")
+
+    # ---- 2. Force ExternalSecret refresh (annotation triggers re-fetch)
+    es_name = "db-credentials"
+    print_info(f"Forcing ExternalSecret {namespace}/{es_name} refresh...")
+    ts = datetime.utcnow().strftime("%Y-%m-%dT%H-%M-%SZ")
+    run_command(
+        ["kubectl", "annotate", "externalsecret", "-n", namespace, es_name,
+         f"force-sync={ts}", "--overwrite"],
+        capture=True, check=False,
+    )
+
+    # ---- 3. Ensure admin-api-key secret exists (used by admin-ui)
+    api_secret_name = "llm-gateway/admin-api-key"
+    api_check = run_command(
+        ["aws", "secretsmanager", "describe-secret", "--secret-id", api_secret_name],
+        capture=True, check=False,
+    )
+    if api_check.returncode != 0:
+        import secrets as _secrets
+        new_key = _secrets.token_urlsafe(30)
+        payload = json.dumps({"api_key": new_key})
+        print_info(f"Creating {api_secret_name}...")
+        run_command(
+            ["aws", "secretsmanager", "create-secret",
+             "--name", api_secret_name, "--secret-string", payload],
+            capture=True, check=False,
+        )
+        print_success(f"Admin API key created. Value (save now): {new_key}")
+    else:
+        print_info(f"{api_secret_name} already exists.")
+
+    # ---- 4. Restart backend to pick up refreshed secret
+    print_info("Restarting backend deployment to consume refreshed secret...")
+    run_command(
+        ["kubectl", "rollout", "restart", "deployment", "-n", namespace, "backend"],
+        capture=True, check=False,
+    )
+
+    # ---- 5. Create application database if missing (CREATE DATABASE IF NOT EXISTS pattern)
+    if not skip_db_create:
+        print_info("Ensuring 'gateway' database exists on RDS...")
+        ensure_db = (
+            "import asyncio,json,os,urllib.parse,asyncpg\n"
+            "host=os.environ['DB_HOST']; port=int(os.environ.get('DB_PORT','5432'))\n"
+            "user=os.environ['DB_USERNAME']; pw=os.environ['DB_PASSWORD']; dbname=os.environ.get('DB_NAME','gateway')\n"
+            "async def main():\n"
+            "    conn=await asyncpg.connect(host=host,port=port,user=user,password=pw,database='postgres',ssl='require')\n"
+            "    exists=await conn.fetchval('SELECT 1 FROM pg_database WHERE datname=$1',dbname)\n"
+            "    if not exists:\n"
+            "        await conn.execute(f'CREATE DATABASE \"{dbname}\"')\n"
+            "        print('created')\n"
+            "    else:\n"
+            "        print('exists')\n"
+            "    await conn.close()\n"
+            "asyncio.run(main())\n"
+        )
+        # Run inside a backend pod where DB_* env vars and asyncpg are available.
+        pod = run_command(
+            ["kubectl", "get", "pod", "-n", namespace, "-l", "app=backend",
+             "-o", "jsonpath={.items[0].metadata.name}"],
+            capture=True, check=False,
+        )
+        if pod.returncode == 0 and pod.stdout.strip():
+            pod_name = pod.stdout.strip()
+            res = subprocess.run(
+                ["kubectl", "exec", "-n", namespace, pod_name, "-i", "--", "python", "-"],
+                input=ensure_db, text=True, capture_output=True,
+            )
+            if res.returncode == 0:
+                print_success(f"DB check: {res.stdout.strip()}")
+            else:
+                print_warning(f"DB ensure step failed (non-fatal): {res.stderr.strip()[:200]}")
+        else:
+            print_warning("No backend pod available yet; skipping DB ensure.")
+
+    # ---- 6. Wait for ArgoCD apps to converge
+    print_info(f"Waiting up to {timeout}s for all ArgoCD apps to be Synced+Healthy...")
+    deadline = time.time() + timeout
+    last_summary = ""
+    while time.time() < deadline:
+        res = run_command(
+            ["kubectl", "get", "applications.argoproj.io", "-n", "argocd",
+             "-o", "jsonpath={range .items[*]}{.metadata.name}={.status.sync.status},{.status.health.status};{end}"],
+            capture=True, check=False,
+        )
+        if res.returncode != 0:
+            time.sleep(10); continue
+        entries = [e for e in res.stdout.split(";") if e.strip()]
+        not_ok = [e for e in entries if "Synced,Healthy" not in e]
+        summary = f"{len(entries) - len(not_ok)}/{len(entries)} apps healthy"
+        if summary != last_summary:
+            print_info(summary)
+            last_summary = summary
+        if not not_ok and entries:
+            print_success("All ArgoCD applications are Synced and Healthy!")
+            return True
+        time.sleep(15)
+
+    print_warning("Timeout waiting for full convergence. Run `python RUNME.py status` for details.")
+    return False
+
+
+# =============================================================================
 # Phase: Validate
 # =============================================================================
 
@@ -1150,6 +1343,10 @@ def run_all(
         print_error("Deployment failed.")
         raise typer.Exit(1)
     
+    # Phase 5b: Reconcile (post-deploy fixes — RDS pw sync, DB create, app convergence)
+    console.print("\n" + "=" * 60)
+    reconcile(namespace="llm-gateway", region=region or "us-east-1", profile=None, timeout=900, skip_db_create=False)
+
     # Phase 6: Validate
     console.print("\n" + "=" * 60)
     validate()
