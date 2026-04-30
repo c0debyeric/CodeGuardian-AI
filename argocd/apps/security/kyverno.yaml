@@ -48,18 +48,20 @@ spec:
         reportsController:
           replicas: 1
         
-        # Override kubectl image for cleanup jobs (bitnami removed old tags)
+        # Override kubectl image for cleanup jobs.
+        # Bitnami images were moved/removed from Docker Hub in 2025;
+        # use rancher/kubectl which is multi-arch and freely pullable.
         cleanupJobs:
           admissionReports:
             image:
               registry: docker.io
-              repository: bitnami/kubectl
-              tag: "1.31"
+              repository: rancher/kubectl
+              tag: "v1.31.4"
           clusterAdmissionReports:
             image:
               registry: docker.io
-              repository: bitnami/kubectl
-              tag: "1.31"
+              repository: rancher/kubectl
+              tag: "v1.31.4"
         
         # Webhook configuration
         webhooksCleanup:
