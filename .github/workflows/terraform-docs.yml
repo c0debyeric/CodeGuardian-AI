@@ -11,6 +11,7 @@ on:
     paths:
       - 'terraform/**.tf'
       - '.terraform-docs.yml'
+  workflow_dispatch:
 
 concurrency:
   group: terraform-docs-${{ github.ref }}
