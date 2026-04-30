@@ -19,6 +19,15 @@ spec:
         # and semantic cache. Persistence is enabled so cache survives pod
         # restarts during demos; in production we'd run replication or
         # ElastiCache.
+        # NOTE: Bitnami removed older image tags from docker.io/bitnami/* in 2025
+        # and moved them to docker.io/bitnamilegacy/*. Pinning here keeps this
+        # chart version usable until we bump to a newer chart series.
+        global:
+          security:
+            allowInsecureImages: true
+        image:
+          registry: docker.io
+          repository: bitnamilegacy/redis
         architecture: standalone
         auth:
           enabled: false
@@ -35,6 +44,9 @@ spec:
               memory: 512Mi
         metrics:
           enabled: true
+          image:
+            registry: docker.io
+            repository: bitnamilegacy/redis-exporter
           serviceMonitor:
             enabled: true
             namespace: monitoring
