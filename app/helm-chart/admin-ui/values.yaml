@@ -20,6 +20,11 @@ grafana:
 # Admin API key is pulled from the same Secrets Manager entry as the backend.
 adminSecret:
   enabled: true
+  # Backend chart already creates the ExternalSecret that owns this k8s Secret.
+  # The admin-ui only needs to mount it, so we skip creating a second ES here
+  # (two ESes targeting the same Secret with creationPolicy=Merge still
+  # conflict because the backend's ES is the Owner).
+  createExternalSecret: false
   secretStore:
     name: aws-secrets-manager
     kind: SecretStore

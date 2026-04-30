@@ -79,7 +79,7 @@ spec:
     - port: {{ .Values.service.port }}
       targetPort: http
       name: http
-{{- if .Values.adminSecret.enabled }}
+{{- if and .Values.adminSecret.enabled .Values.adminSecret.createExternalSecret }}
 ---
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret

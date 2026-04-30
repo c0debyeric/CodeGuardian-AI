@@ -19,16 +19,43 @@ spec:
       valuesObject:
         # Pod Security Standards
         podSecurityStandard: restricted
-        
+
         # Validation failure action (audit vs enforce)
         validationFailureAction: Audit  # Start with Audit, move to Enforce later
-        
+
         # Background scanning
         background: true
-        
+
         # Include specific policies
         includeRestrictedPolicies: true
         includeBestPractices: true
+
+        # Skip system / infra namespaces — they need privileged pods, root,
+        # custom seccomp, etc. Without these exclusions the velero CRD
+        # upgrade job and other operator helpers get blocked at admission.
+        validationFailureActionByPolicy: {}
+        failurePolicy: Ignore
+        policyExclude:
+          require-run-as-nonroot:
+            any:
+              - resources:
+                  namespaces:
+                    [kube-system, velero, kyverno, monitoring, external-secrets, cert-manager, kubecost, argocd, opentelemetry, loki, tempo]
+          restrict-seccomp-strict:
+            any:
+              - resources:
+                  namespaces:
+                    [kube-system, velero, kyverno, monitoring, external-secrets, cert-manager, kubecost, argocd, opentelemetry, loki, tempo]
+          disallow-privilege-escalation:
+            any:
+              - resources:
+                  namespaces:
+                    [kube-system, velero, kyverno, monitoring, external-secrets, cert-manager, kubecost]
+          require-drop-all:
+            any:
+              - resources:
+                  namespaces:
+                    [kube-system, velero, kyverno, monitoring, external-secrets, cert-manager, kubecost]
   
   destination:
     server: https://kubernetes.default.svc
