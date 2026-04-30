@@ -39,7 +39,7 @@ module "eks" {
   cluster_security_group_id            = local.security_group_ids.eks_cluster
   tags                                 = var.tags
   cluster_endpoint_public_access_cidrs = var.cluster_endpoint_public_access_cidrs
-  secret_name_prefix                    = var.secret_name_prefix
+  secret_name_prefix                   = var.secret_name_prefix
 
   # S3 buckets for IRSA policies
   velero_bucket_arn        = module.s3_state.velero_bucket_arn
