@@ -9,7 +9,7 @@ spec:
   project: applications
 
   source:
-    repoURL: https://github.com/asian-code/CodeGuardian-AI
+    repoURL: https://github.com/c0debyeric/llm-inference-platform
     targetRevision: main
     path: app/helm-chart/backend
     helm:

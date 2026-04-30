@@ -13,7 +13,7 @@ spec:
   project: default
   
   source:
-    repoURL: https://github.com/c0debyeric/CodeGuardian-AI
+    repoURL: https://github.com/c0debyeric/llm-inference-platform
     targetRevision: main
     path: argocd
     directory:

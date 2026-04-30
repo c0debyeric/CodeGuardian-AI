@@ -65,7 +65,7 @@ STATE_FILE = PROJECT_ROOT / ".bootstrap-state.json"
 ENV_FILE = PROJECT_ROOT / ".env"
 
 # GitHub repo URL
-GITHUB_REPO_URL = "https://github.com/c0debyeric/CodeGuardian-AI"
+GITHUB_REPO_URL = "https://github.com/c0debyeric/llm-inference-platform"
 
 console = Console()
 app = typer.Typer(
