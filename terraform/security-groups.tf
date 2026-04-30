@@ -136,6 +136,19 @@ module "rds_sg" {
   })
 }
 
+# EKS managed-node-group nodes are attached to the EKS-created cluster
+# primary security group, NOT our custom eks_cluster_sg above. Allow
+# Postgres from that SG so backend pods can reach RDS.
+resource "aws_security_group_rule" "rds_from_eks_primary" {
+  type                     = "ingress"
+  from_port                = 5432
+  to_port                  = 5432
+  protocol                 = "tcp"
+  security_group_id        = module.rds_sg.security_group_id
+  source_security_group_id = module.eks.cluster_primary_security_group_id
+  description              = "PostgreSQL from EKS primary cluster SG (managed node group)"
+}
+
 # ==========================================
 # VPC Endpoints Security Group
 # ==========================================

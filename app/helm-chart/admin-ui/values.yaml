@@ -31,5 +31,5 @@ resources:
   limits:   { cpu: 250m, memory: 256Mi }
 
 probes:
-  liveness:  { path: /, initialDelaySeconds: 10, periodSeconds: 30 }
-  readiness: { path: /, initialDelaySeconds: 5,  periodSeconds: 10 }
+  liveness:  { path: /, initialDelaySeconds: 15, periodSeconds: 30, timeoutSeconds: 5, failureThreshold: 5 }
+  readiness: { path: /, initialDelaySeconds: 5,  periodSeconds: 10, timeoutSeconds: 5, failureThreshold: 5 }

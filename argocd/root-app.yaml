@@ -13,7 +13,7 @@ spec:
   project: default
   
   source:
-    repoURL: https://github.com/asian-code/CodeGuardian-AI
+    repoURL: https://github.com/c0debyeric/CodeGuardian-AI
     targetRevision: main
     path: argocd
     directory:

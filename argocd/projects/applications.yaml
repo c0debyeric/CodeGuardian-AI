@@ -17,6 +17,9 @@ spec:
       server: https://kubernetes.default.svc
     - namespace: llm-gateway-staging
       server: https://kubernetes.default.svc
+    # Redis ServiceMonitor lives in monitoring namespace
+    - namespace: monitoring
+      server: https://kubernetes.default.svc
   
   clusterResourceWhitelist:
     - group: ''

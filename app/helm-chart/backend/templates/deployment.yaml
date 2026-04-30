@@ -61,7 +61,8 @@ spec:
               valueFrom:
                 secretKeyRef: { name: {{ .Values.externalSecret.targetSecretName }}, key: DB_NAME }
             - name: DATABASE_URL
-              value: "postgresql+asyncpg://$(DB_USERNAME):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)"
+              # ssl=require: RDS PostgreSQL force_ssl is enabled by default
+              value: "postgresql+asyncpg://$(DB_USERNAME):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)?ssl=require"
             {{- end }}
             {{- if .Values.adminSecret.enabled }}
             - name: ADMIN_API_KEY

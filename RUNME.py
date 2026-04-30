@@ -26,6 +26,15 @@ from enum import Enum
 from pathlib import Path
 from typing import Optional
 
+# Windows consoles default to cp1252 which can't encode emoji. Force UTF-8.
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+    os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+
 try:
     import typer
     from rich.console import Console
@@ -56,7 +65,7 @@ STATE_FILE = PROJECT_ROOT / ".bootstrap-state.json"
 ENV_FILE = PROJECT_ROOT / ".env"
 
 # GitHub repo URL
-GITHUB_REPO_URL = "https://github.com/asian-code/CodeGuardian-AI"
+GITHUB_REPO_URL = "https://github.com/c0debyeric/CodeGuardian-AI"
 
 console = Console()
 app = typer.Typer(
@@ -64,6 +73,32 @@ app = typer.Typer(
     help=f"✨ {APP_NAME} Bootstrap Script - Deploy from zero to production",
     add_completion=False,
 )
+
+
+# =============================================================================
+# AWS Profile Handling
+# =============================================================================
+#
+# We honor an explicit `--profile` (set on `all` / `terraform` / `images` / etc.)
+# by exporting AWS_PROFILE into this process's environment. Every downstream
+# tool we shell out to (awscli, terraform's aws provider, helm/kubectl via
+# aws-iam-authenticator, docker login via `aws ecr get-login-password`) reads
+# AWS_PROFILE, so this is the single hook we need.
+#
+# Region works the same way: AWS_REGION + AWS_DEFAULT_REGION cover the matrix
+# of tools that pick one or the other.
+
+
+def apply_aws_profile(profile: Optional[str], region: Optional[str] = None) -> None:
+    """Set AWS_PROFILE / AWS_REGION env vars for this process and all children."""
+    if profile:
+        os.environ["AWS_PROFILE"] = profile
+        os.environ.pop("AWS_ACCESS_KEY_ID", None)
+        os.environ.pop("AWS_SECRET_ACCESS_KEY", None)
+        os.environ.pop("AWS_SESSION_TOKEN", None)
+    if region:
+        os.environ["AWS_REGION"] = region
+        os.environ["AWS_DEFAULT_REGION"] = region
 
 
 class Environment(str, Enum):
@@ -253,8 +288,12 @@ def check_aws_region() -> tuple[bool, str]:
 @app.command()
 def preflight(
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed output"),
+    profile: Optional[str] = typer.Option(None, "--profile", help="AWS CLI profile to use"),
+    region: Optional[str] = typer.Option(None, "--region", help="AWS region (default: profile/env)"),
+    skip_docker: bool = typer.Option(False, "--skip-docker", help="Don't require Docker (for infra-only flow)"),
 ) -> bool:
     """Check all prerequisites before deployment."""
+    apply_aws_profile(profile, region)
     print_header("🔍 Preflight Checks")
     
     all_passed = True
@@ -273,8 +312,13 @@ def preflight(
         if check_tool(tool_name, version_cmd):
             checks.append((tool_name, True, "Installed"))
         else:
-            checks.append((tool_name, False, "Not found"))
-            all_passed = False
+            installed = False
+            # Docker is optional when --skip-docker is passed
+            if tool_name == "docker" and skip_docker:
+                checks.append((tool_name, True, "Skipped (--skip-docker)"))
+            else:
+                checks.append((tool_name, False, "Not found"))
+                all_passed = False
     
     # Check AWS credentials
     aws_ok, aws_info = check_aws_credentials()
@@ -386,8 +430,11 @@ def terraform(
     plan_only: bool = typer.Option(False, "--plan", help="Only show plan, don't apply"),
     auto_approve: bool = typer.Option(False, "--auto-approve", "-y", help="Skip confirmation"),
     destroy_flag: bool = typer.Option(False, "--destroy", help="Destroy infrastructure"),
+    profile: Optional[str] = typer.Option(None, "--profile", help="AWS CLI profile to use"),
+    region: Optional[str] = typer.Option(None, "--region", help="AWS region"),
 ) -> bool:
     """Apply Terraform infrastructure."""
+    apply_aws_profile(profile, region)
     print_header(f"🏗️ Terraform {'Destroy' if destroy_flag else 'Apply'} - {env.value}")
     
     update_phase("terraform", PhaseStatus.in_progress)
@@ -466,8 +513,11 @@ def terraform(
 @app.command()
 def kubeconfig(
     env: Environment = typer.Option(None, "--env", "-e", help="Environment"),
+    profile: Optional[str] = typer.Option(None, "--profile", help="AWS CLI profile to use"),
+    region: Optional[str] = typer.Option(None, "--region", help="AWS region"),
 ) -> bool:
     """Configure kubectl to access the EKS cluster."""
+    apply_aws_profile(profile, region)
     print_header("🔐 Configuring Kubeconfig")
     
     # Get cluster name from state or env file
@@ -528,8 +578,11 @@ def kubeconfig(
 def images(
     push: bool = typer.Option(True, "--push/--no-push", help="Push images to ECR"),
     tag: str = typer.Option(None, "--tag", "-t", help="Image tag (default: git SHA)"),
+    profile: Optional[str] = typer.Option(None, "--profile", help="AWS CLI profile to use"),
+    region: Optional[str] = typer.Option(None, "--region", help="AWS region"),
 ) -> bool:
     """Build and push Docker images to ECR."""
+    apply_aws_profile(profile, region)
     print_header("🐳 Building Docker Images")
     
     update_phase("images", PhaseStatus.in_progress)
@@ -1035,8 +1088,12 @@ def run_all(
     env: Environment = typer.Option(Environment.dev, "--env", "-e", help="Environment to deploy"),
     skip_confirmations: bool = typer.Option(False, "--yes", "-y", help="Skip all confirmations"),
     repo_url: str = typer.Option(None, "--repo", help="GitHub repository URL"),
+    profile: Optional[str] = typer.Option(None, "--profile", help="AWS CLI profile to use"),
+    region: Optional[str] = typer.Option("us-east-1", "--region", help="AWS region"),
+    skip_images: bool = typer.Option(False, "--skip-images", help="Skip docker build/push (deploy infra + ArgoCD only)"),
 ) -> None:
     """Run complete bootstrap from scratch."""
+    apply_aws_profile(profile, region)
     console.print(Panel(
         f"[bold cyan]🛡️ {APP_NAME} - Full Bootstrap[/bold cyan]\n\n"
         f"Environment: {env.value}\n"
@@ -1057,27 +1114,31 @@ def run_all(
     
     # Phase 1: Preflight
     console.print("\n" + "=" * 60)
-    if not preflight():
+    if not preflight(verbose=False, profile=None, region=None, skip_docker=skip_images):
         print_error("Preflight checks failed. Fix issues and try again.")
         raise typer.Exit(1)
     
     # Phase 2: Terraform
     console.print("\n" + "=" * 60)
-    if not terraform(env=env, auto_approve=skip_confirmations):
+    if not terraform(env=env, plan_only=False, auto_approve=skip_confirmations, destroy_flag=False, profile=None, region=None):
         print_error("Terraform failed.")
         raise typer.Exit(1)
     
     # Phase 3: Kubeconfig
     console.print("\n" + "=" * 60)
-    if not kubeconfig(env=env):
+    if not kubeconfig(env=env, profile=None, region=None):
         print_error("Kubeconfig setup failed.")
         raise typer.Exit(1)
     
-    # Phase 4: Docker Images
-    console.print("\n" + "=" * 60)
-    if not images():
-        print_error("Image build/push failed.")
-        raise typer.Exit(1)
+    # Phase 4: Docker Images (optional)
+    if skip_images:
+        console.print("\n" + "=" * 60)
+        print_warning("Skipping image build/push (--skip-images). Pods will be ImagePullBackOff until CI pushes images.")
+    else:
+        console.print("\n" + "=" * 60)
+        if not images(push=True, tag=None, profile=None, region=None):
+            print_error("Image build/push failed.")
+            raise typer.Exit(1)
     
     # Phase 5: Deploy
     console.print("\n" + "=" * 60)
@@ -1085,7 +1146,7 @@ def run_all(
     if "YOUR_USERNAME" in final_repo and not skip_confirmations:
         final_repo = typer.prompt("Enter your GitHub repository URL")
     
-    if not deploy(repo_url=final_repo):
+    if not deploy(repo_url=final_repo, skip_argocd_wait=False):
         print_error("Deployment failed.")
         raise typer.Exit(1)
     
