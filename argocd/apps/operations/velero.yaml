@@ -15,11 +15,14 @@ spec:
     chart: velero
     helm:
       valuesObject:
-        # Override kubectl image (bitnami images deprecated/removed)
+        # Override kubectl image. Bitnami removed bitnami/kubectl tags from
+        # docker.io in 2025; rancher/kubectl is distroless and lacks /bin/sh
+        # (the upgrade-crds Job uses `sh -c`), so we point at the bitnamilegacy
+        # mirror which preserves the shell-equipped images.
         kubectl:
           image:
-            repository: docker.io/rancher/kubectl
-            tag: "v1.31.4"
+            repository: docker.io/bitnamilegacy/kubectl
+            tag: "1.31.4"
         
         # Service account - Pod Identity is configured via Terraform
         # No annotations needed; EKS Pod Identity Agent handles AWS credentials

@@ -50,18 +50,20 @@ spec:
         
         # Override kubectl image for cleanup jobs.
         # Bitnami images were moved/removed from Docker Hub in 2025;
-        # use rancher/kubectl which is multi-arch and freely pullable.
+        # rancher/kubectl is distroless (no /bin/sh), so the cleanup jobs
+        # which invoke `sh -c` fail. Use the bitnamilegacy mirror which
+        # preserves the older shell-equipped images.
         cleanupJobs:
           admissionReports:
             image:
               registry: docker.io
-              repository: rancher/kubectl
-              tag: "v1.31.4"
+              repository: bitnamilegacy/kubectl
+              tag: "1.31.4"
           clusterAdmissionReports:
             image:
               registry: docker.io
-              repository: rancher/kubectl
-              tag: "v1.31.4"
+              repository: bitnamilegacy/kubectl
+              tag: "1.31.4"
         
         # Webhook configuration
         webhooksCleanup:
