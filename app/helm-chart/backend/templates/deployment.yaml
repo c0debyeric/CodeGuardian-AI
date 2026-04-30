@@ -60,9 +60,9 @@ spec:
             - name: DB_NAME
               valueFrom:
                 secretKeyRef: { name: {{ .Values.externalSecret.targetSecretName }}, key: DB_NAME }
-            - name: DATABASE_URL
-              # ssl=require: RDS PostgreSQL force_ssl is enabled by default
-              value: "postgresql+asyncpg://$(DB_USERNAME):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)?ssl=require"
+            # DATABASE_URL is composed by the app from DB_* env vars so the
+            # password (which may contain URL-unsafe chars from Secrets Manager)
+            # is properly URL-encoded. See app/backend/src/usage/db.py.
             {{- end }}
             {{- if .Values.adminSecret.enabled }}
             - name: ADMIN_API_KEY

@@ -26,7 +26,27 @@ _session_factory: async_sessionmaker[AsyncSession] | None = None
 
 
 def _resolve_url() -> str:
-    """Return effective DB URL. Defaults to in-memory SQLite when unset."""
+    """Return effective DB URL.
+
+    Precedence:
+      1. Compose from discrete DB_HOST/DB_PORT/DB_USERNAME/DB_PASSWORD/DB_NAME
+         env vars when present (so passwords with URL-unsafe characters from
+         AWS Secrets Manager are URL-encoded correctly here, not via shell
+         interpolation in the Helm chart).
+      2. settings.database_url (e.g. local sqlite override).
+      3. In-memory SQLite fallback.
+    """
+    import os
+    from urllib.parse import quote_plus
+
+    host = os.environ.get("DB_HOST")
+    if host:
+        user = quote_plus(os.environ.get("DB_USERNAME", ""))
+        pw = quote_plus(os.environ.get("DB_PASSWORD", ""))
+        port = os.environ.get("DB_PORT", "5432")
+        name = os.environ.get("DB_NAME", "")
+        return f"postgresql+asyncpg://{user}:{pw}@{host}:{port}/{name}?ssl=require"
+
     settings = get_settings()
     if settings.database_url:
         return settings.database_url
